@@ -1,0 +1,37 @@
+name: Mooz
+options:
+  bundleIdPrefix: com.dananz
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+settings:
+  SWIFT_VERSION: "6.0"
+  SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  Mooz:
+    type: application
+    platform: macOS
+    sources:
+      - Mooz
+    info:
+      path: Mooz/Info.plist
+      properties:
+        LSUIElement: true
+    entitlements:
+      path: Mooz/Mooz.entitlements
+    settings:
+      INFOPLIST_FILE: Mooz/Info.plist
+      CODE_SIGN_ENTITLEMENTS: Mooz/Mooz.entitlements
+      # Stable self-signed identity so the TCC Accessibility grant survives
+      # rebuilds. Ad-hoc signing rekeys TCC by cdhash on every build, silently
+      # revoking permission. Manual signing keys TCC by the designated
+      # requirement (bundle id + cert), which is stable across rebuilds.
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: "DisplayPal Development"
+      # C/ObjC interop for the original gesture synthesizer (MoozGesture.m).
+      SWIFT_OBJC_BRIDGING_HEADER: Mooz/Mooz-Bridging-Header.h
+      HEADER_SEARCH_PATHS: $(SRCROOT)/Mooz
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      PRODUCT_BUNDLE_IDENTIFIER: com.dananz.mooz
+      PRODUCT_NAME: Mooz
+      MACOSX_DEPLOYMENT_TARGET: "14.0"

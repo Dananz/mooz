@@ -1,0 +1,15 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+# XcodeGen output — regenerate with `xcodegen generate`
+*.xcodeproj/
+DerivedData/
+build/
+.build/
+.env
+.env.*
+!.env.example
+.superpowers/
+CLAUDE.local.md
+.claude/settings.local.json
+default.profraw
