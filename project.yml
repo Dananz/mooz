@@ -31,7 +31,7 @@ targets:
         # Sparkle auto-update. SUPublicEDKey pairs with the EdDSA private key in
         # the login keychain (service https://sparkle-project.org) used to sign
         # each release. SUFeedURL is the appcast Sparkle polls.
-        SUFeedURL: "https://dananz.github.io/mooz/appcast.xml"
+        SUFeedURL: "https://mooz.dananz.com/appcast.xml"
         SUPublicEDKey: "Yuby2HGTViasahcS9uuyY/JRtAOIF48W1ED5DnbndPk="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400

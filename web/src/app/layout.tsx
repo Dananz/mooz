@@ -16,11 +16,9 @@ const spaceGrotesk = Space_Grotesk({
   display: "swap",
 });
 
-// On GitHub Pages the site is served under /mooz; locally it's at the root.
-// Asset URLs (favicons, OG image) must carry the right prefix in each case.
-const isPages = process.env.NEXT_PUBLIC_PAGES === "true";
-const basePath = isPages ? "/mooz" : "";
-const siteUrl = isPages ? "https://dananz.github.io/mooz" : "http://localhost:3000";
+// Production is the custom domain (served at the root). Locally it's localhost.
+const isProd = process.env.NEXT_PUBLIC_PAGES === "true";
+const siteUrl = isProd ? "https://mooz.dananz.com" : "http://localhost:3000";
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "1.0";
 
 const title = "Mooz - pinch-to-zoom for any mouse";
@@ -51,17 +49,17 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: `${basePath}/icon-light.png`,
+        url: "/icon-light.png",
         media: "(prefers-color-scheme: light)",
         type: "image/png",
       },
       {
-        url: `${basePath}/icon-dark.png`,
+        url: "/icon-dark.png",
         media: "(prefers-color-scheme: dark)",
         type: "image/png",
       },
     ],
-    apple: `${basePath}/icon-light.png`,
+    apple: "/icon-light.png",
   },
   openGraph: {
     title,

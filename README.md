@@ -14,7 +14,7 @@
 [![License](https://img.shields.io/github/license/Dananz/mooz)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-1a1a1a)](https://www.apple.com/macos/)
 
-[Website](https://dananz.github.io/mooz/) &middot; [Download](https://github.com/Dananz/mooz/releases/latest/download/Mooz.dmg) &middot; [Releases](https://github.com/Dananz/mooz/releases)
+[Website](https://mooz.dananz.com/) &middot; [Download](https://github.com/Dananz/mooz/releases/latest/download/Mooz.dmg) &middot; [Releases](https://github.com/Dananz/mooz/releases)
 
 </div>
 
