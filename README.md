@@ -1,75 +1,103 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="design/icon/exports/default.png">
+  <img src="design/icon/exports/dark.png" alt="Mooz" width="144" height="144">
+</picture>
+
 # Mooz
 
 **Trackpad pinch-to-zoom for any mouse, on macOS.**
 
-Mooz lets a regular mouse do the thing only a trackpad could: smooth, continuous
-pinch-zoom inside any app. Hold a modifier key and move the mouse (or scroll),
-and the page zooms — in Safari, Chrome, Firefox, Zen, Preview, Maps, anywhere
-that supports the system pinch gesture. The pointer stays anchored in place while
-you zoom, so the page doesn't pan out from under you.
+[![Release](https://img.shields.io/github/v/release/Dananz/mooz?color=ffb020&label=release)](https://github.com/Dananz/mooz/releases/latest)
+[![Download](https://img.shields.io/badge/download-Mooz.dmg-ffb020)](https://github.com/Dananz/mooz/releases/latest/download/Mooz.dmg)
+[![License](https://img.shields.io/github/license/Dananz/mooz)](LICENSE)
+[![macOS](https://img.shields.io/badge/macOS-14%2B-1a1a1a)](https://www.apple.com/macos/)
 
-> **Why "Mooz"?** It's *zoom* spelled backwards — and it reads a little like
-> *mouse*. The whole app is about pointing your mouse at the one trackpad trick
-> it never had.
+[Website](https://dananz.github.io/mooz/) &middot; [Download](https://github.com/Dananz/mooz/releases/latest/download/Mooz.dmg) &middot; [Releases](https://github.com/Dananz/mooz/releases)
+
+</div>
+
+Mooz is a tiny macOS menu-bar app that lets a regular mouse do the one thing only a trackpad could: smooth, continuous pinch-to-zoom inside any app. Hold a modifier key and move the mouse (or scroll), and Mooz synthesizes a real macOS magnify gesture, so the view zooms exactly like it would from a trackpad in Safari, Chrome, Firefox, Zen, Preview, Maps, anywhere the system pinch gesture works. Built in Swift 6 and SwiftUI. No Dock icon, no clutter.
+
+> **Why "Mooz"?** It's *zoom* spelled backwards, and it reads a little like *mouse*. The whole app is about pointing your mouse at the one trackpad trick it never had.
+
+## Screenshots
+
+<div align="center">
+<img src="design/screenshots/settings.png" alt="Mooz settings: gesture and behavior" width="640">
+<br><sub>Pick the modifier, drag or scroll, set sensitivity, and toggle cursor anchoring.</sub>
+</div>
 
 ## Features
 
-- **Native pinch-zoom with a mouse** — synthesizes a real macOS magnify gesture,
-  so apps zoom exactly like they do from a trackpad (not a `⌘ +/-` shortcut hack).
-- **Works everywhere** — including Gecko browsers (Firefox/Zen), which need a
-  fully-formed gesture event that most tools don't produce.
-- **Cursor anchoring** — the pointer is pinned where the zoom starts so content
-  doesn't slide away. Toggle it off if you'd rather the cursor move freely.
-- **Configurable trigger** — record any modifier or combo (⇧, ⌘, ⌃, ⌥, or e.g.
-  ⇧⌘) and choose **drag** or **scroll** as the input.
-- **Adjustable sensitivity** with smoothing for a buttery feel.
-- **Per-app control** — a blocklist or allowlist so Mooz only acts where you want.
-- **Menu-bar app** — lives in the menu bar (no Dock icon), with a glass,
-  tabbed Settings window.
+### Native pinch-zoom
+- Synthesizes a real macOS magnify gesture, so apps zoom like they do from a trackpad, not a `⌘ +/-` shortcut hack.
+- Works everywhere, including Gecko browsers (Firefox / Zen) that need a fully-formed gesture event most tools don't produce.
 
-## Requirements
+### Trigger and input
+- Record any modifier or combo (⇧, ⌘, ⌃, ⌥, or e.g. ⇧⌘) as the trigger.
+- Choose **Mouse Drag** or **Scroll Wheel** as the input source.
+- Adjustable **sensitivity** with smoothing for a natural feel.
 
-- macOS 14 or later
-- **Accessibility permission** (System Settings ▸ Privacy & Security ▸
-  Accessibility) — required to intercept input and post the gesture.
+### Cursor anchoring
+- The pointer stays pinned where the zoom starts, so content doesn't pan out from under you. Turn it off to let the cursor move freely.
 
-## Versioning
+### Per-app control
+- A blocklist or allowlist, so Mooz only acts in the apps you choose.
 
-The version lives in one place: the `VERSION` file at the repo root. Everything
-derives from it, so the app, the website and the release tag can never drift:
+### Menu-bar app
+- Lives in the menu bar (no Dock icon), with a glass, tabbed Settings window.
 
-- **App**: `project.yml` reads it into `MARKETING_VERSION`. Run
-  `scripts/sync-version.sh` after editing `VERSION` (or just use the release
-  script, which does it for you).
-- **Website**: `web/next.config.ts` reads `VERSION` at build time and shows it
-  in the footer, so a rebuild always reflects the current value.
-- **Release tag**: `scripts/release.sh` tags the release `v<VERSION>`.
+### Auto-update
+- In-app updates via [Sparkle](https://sparkle-project.org): a "Check for Updates" item in the menu and a Software Update section in Settings, plus daily background checks.
 
-`scripts/check-version.sh` fails if any of these disagree, and it runs in CI
-(`.github/workflows/version-guard.yml`) on every PR and tag.
+## Install
 
-## Releasing
+Download the latest **`Mooz.dmg`** from the [releases page](https://github.com/Dananz/mooz/releases/latest), open it, and drag **Mooz** into Applications.
 
-One command builds, signs, notarizes and publishes a release:
+### First launch
+- Grant **Accessibility** permission when prompted (System Settings → Privacy & Security → Accessibility → enable Mooz). It is required to read input and post the gesture.
+- If macOS says it cannot verify the developer, allow Mooz under System Settings → Privacy & Security → **Open Anyway** (or right-click the app and choose **Open**).
 
+### Requirements
+- macOS 14 or later.
+
+## Usage
+
+1. Hold your **modifier** (default **⇧ Shift**) and **drag** up to zoom in, down to zoom out, or switch the input to **Scroll Wheel** in Settings.
+2. Release to stop. The pointer stays anchored unless you turn anchoring off.
+3. Tune the **modifier**, **input source**, **sensitivity**, and **anchoring** in **Settings → General**, and set per-app rules in **Settings → Application**.
+
+## Build from source
+
+### Prerequisites
+- macOS 14+, [Xcode](https://developer.apple.com/xcode/) 16+.
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`); the Xcode project is generated from `project.yml`.
+
+### Run
 ```bash
-scripts/release.sh 1.1.0   # or no argument to release the current VERSION
+xcodegen generate
+open Mooz.xcodeproj          # then press Run, or:
+xcodebuild -scheme Mooz -configuration Debug build
 ```
 
-It bumps `VERSION`, builds Release, deep-signs the app and the embedded Sparkle
-helpers with Developer ID, notarizes and staples the DMG, regenerates the
-Sparkle appcast (`web/public/appcast.xml`), pushes the tag, and creates the
-GitHub release with the DMG attached. Existing users get the update through the
-in-app updater; the website footer updates on the next Pages deploy.
+### Releasing
+The version is single-sourced from the repo-root `VERSION` file. It drives the app (`MARKETING_VERSION`), the website (read at build time), and the release tag; `scripts/check-version.sh` guards against drift in CI. One command cuts a signed, notarized release:
 
-One-time setup:
+```bash
+scripts/release.sh 1.1.0     # or no argument to release the current VERSION
+```
 
-- A **Developer ID Application** certificate in your login keychain.
-- A notarytool keychain profile:
-  `xcrun notarytool store-credentials mooz-notary --apple-id <id> --team-id Q2V86449AC --password <app-specific-password>`.
-- A Sparkle EdDSA signing key (`generate_keys`). **Back up the private key**;
-  losing it means existing users can no longer auto-update.
-- `gh` authenticated for the repo.
+It builds Release, deep-signs the app and the embedded Sparkle helpers with Developer ID, notarizes and staples the DMG, regenerates the appcast, tags `v<VERSION>`, and creates the GitHub release with `Mooz.dmg` attached. One-time setup (Developer ID cert, a `notarytool` keychain profile, a Sparkle EdDSA key, and an authenticated `gh`) is required; **back up the Sparkle private key**, since losing it stops auto-updates for existing users.
+
+## Tech stack
+
+Swift 6 and SwiftUI, low-level event taps to read the trigger and synthesize the native pinch gesture (with a small C/Objective-C core), [Sparkle](https://sparkle-project.org) for auto-updates, and XcodeGen for the project. The marketing site is Next.js (static export) deployed to GitHub Pages.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes focused, and run `xcodegen generate` after editing `project.yml`.
 
 ## License
 

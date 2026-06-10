@@ -41,11 +41,12 @@ export function Hero() {
 
   return (
     <section className="relative border-b border-line py-20 sm:py-28">
-      {/* Ring clip layer: extends past the column's centering + px-5 so its right
-          edge sits on the screen edge (mobile) / the page-frame border (sm+, which
-          is inset 1.5rem by main's px-6). Clips the ring's bleed without putting
-          overflow-hidden on the section (that clipped the CTA magnet). */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 overflow-hidden right-[calc((100%-var(--cw,100vw))/2)] sm:right-[calc((100%-var(--cw,100vw))/2+1.5rem)]">
+      {/* Ring clip layer. Desktop (lg+): right edge sits on the content column's
+          right edge (right-0), so the ring hugs the container, not the screen.
+          Below lg the column is ~full width, so it extends to the screen edge
+          (mobile) / page-frame border (sm) via --cw. overflow-hidden lives here,
+          not on the section, so it never clips the CTA magnet. */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 overflow-hidden right-[calc((100%-var(--cw,100vw))/2)] sm:right-[calc((100%-var(--cw,100vw))/2+1.5rem)] lg:right-0">
       {/* Spinning ring opposite the CTA - last beat of the timeline. */}
       <motion.div
         initial={{ opacity: 0, scale: 0.85 }}
