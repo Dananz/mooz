@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
@@ -21,6 +21,7 @@ const spaceGrotesk = Space_Grotesk({
 const isPages = process.env.NEXT_PUBLIC_PAGES === "true";
 const basePath = isPages ? "/mooz" : "";
 const siteUrl = isPages ? "https://dananz.github.io/mooz" : "http://localhost:3000";
+const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "1.0";
 
 const title = "Mooz - pinch-to-zoom for any mouse";
 const description =
@@ -30,6 +31,21 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title,
   description,
+  applicationName: "Mooz",
+  authors: [{ name: "Tomer Danan", url: "https://github.com/Dananz" }],
+  creator: "Tomer Danan",
+  category: "productivity",
+  keywords: [
+    "macOS zoom",
+    "mouse pinch to zoom",
+    "trackpad gesture for mouse",
+    "magnify gesture",
+    "zoom any app macOS",
+    "menu bar app",
+    "Firefox zoom with mouse",
+    "accessibility zoom",
+  ],
+  alternates: { canonical: siteUrl },
   // App-icon renders as the favicon: light tile (dark glyph) on light browser
   // themes, dark tile (white glyph) on dark - matching the macOS app icon.
   icons: {
@@ -53,6 +69,7 @@ export const metadata: Metadata = {
     url: siteUrl,
     siteName: "Mooz",
     type: "website",
+    locale: "en_US",
     images: [
       {
         url: `${siteUrl}/og.png`,
@@ -70,6 +87,33 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#0b0e14",
+  colorScheme: "dark",
+};
+
+// Structured data: a free macOS app. Eligible for software-app rich results.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Mooz",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "macOS 14.0 or later",
+  description,
+  url: `${siteUrl}/`,
+  image: `${siteUrl}/og.png`,
+  downloadUrl:
+    "https://github.com/Dananz/mooz/releases/latest/download/Mooz.dmg",
+  softwareVersion: appVersion,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  author: {
+    "@type": "Person",
+    name: "Tomer Danan",
+    url: "https://github.com/Dananz",
+  },
+  license: "https://github.com/Dananz/mooz/blob/main/LICENSE",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -79,6 +123,11 @@ export default function RootLayout({
     <html lang="en" className={`${archivo.variable} ${spaceGrotesk.variable}`}>
       <body className="min-h-screen bg-ink text-text font-body antialiased">
         {children}
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
       </body>
     </html>
   );
