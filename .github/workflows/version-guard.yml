@@ -1,0 +1,18 @@
+# Fails the build if the version drifts between VERSION, the app
+# (project.yml MARKETING_VERSION) and the release tag. The website cannot drift
+# (next.config.ts reads VERSION at build) so it is not checked here.
+name: version-guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version consistency
+        run: bash scripts/check-version.sh

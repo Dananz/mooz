@@ -6,6 +6,10 @@ xcuserdata/
 DerivedData/
 build/
 .build/
+node_modules/
+scripts/.cache/
+web/.next/
+web/out/
 .env
 .env.*
 !.env.example

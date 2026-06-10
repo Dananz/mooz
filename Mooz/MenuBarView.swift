@@ -4,6 +4,7 @@ struct MenuBarView: View {
     @AppStorage("modifierFlags") private var modifierFlagsRaw = 131072 // .maskShift
     @AppStorage("inputSource") private var inputSource = "mouseDrag"
     @Environment(\.openSettings) private var openSettings
+    @EnvironmentObject private var updater: Updater
 
     @State private var manager = ZoomManager.shared
 
@@ -29,6 +30,19 @@ struct MenuBarView: View {
             } else {
                 activeContent
             }
+
+            Divider()
+
+            // Check for updates
+            Button("Check for Updates...") {
+                updater.checkForUpdates()
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .disabled(!updater.canCheckForUpdates)
 
             Divider()
 

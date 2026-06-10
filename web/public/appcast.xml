@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Mooz</title>
+        <item>
+            <title>1.0</title>
+            <pubDate>Wed, 10 Jun 2026 16:09:32 +0300</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Dananz/mooz/releases/download/v1.0/Mooz.dmg" length="2880235" type="application/octet-stream" sparkle:edSignature="C+Zs3npzktrirfY5DdEx1On679mCljKUd+zbg6cpiHbtdKhQf9cUqI7OmfvJcUKTDOk/7rbSDqRGuPraIfQ5Bw=="/>
+        </item>
+    </channel>
+</rss>

@@ -9,6 +9,7 @@ struct AboutSettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
 
     @State private var manager = ZoomManager.shared
+    @EnvironmentObject private var updater: Updater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -20,6 +21,7 @@ struct AboutSettingsView: View {
 
             accessibilityCard
             startupSection
+            softwareUpdateSection
         }
         .padding(SettingsMetrics.pagePadding)
         .frame(width: SettingsMetrics.contentWidth)
@@ -141,6 +143,33 @@ struct AboutSettingsView: View {
                                 launchAtLogin = !launchAtLogin
                             }
                         }
+                }
+            }
+        }
+    }
+
+    // MARK: - Software Update
+
+    private var softwareUpdateSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsSectionHeader(title: "Software Update")
+            SettingsCard {
+                SettingsRow("Automatically check for updates") {
+                    Toggle("", isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.automaticallyChecksForUpdates = $0 }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                }
+
+                CardDivider()
+
+                SettingsRow("Current version \(appVersion)") {
+                    Button("Check Now") {
+                        updater.checkForUpdates()
+                    }
+                    .disabled(!updater.canCheckForUpdates)
                 }
             }
         }

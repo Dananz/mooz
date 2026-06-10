@@ -145,7 +145,7 @@ private struct ComboPill: View {
             .foregroundStyle(label.isEmpty ? Color.secondary : Color.primary)
             .lineLimit(1)
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.vertical, 8)
             .background(fill, in: Capsule(style: .continuous))
             .overlay(
                 Capsule(style: .continuous)

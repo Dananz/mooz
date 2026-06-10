@@ -7,27 +7,50 @@ options:
 settings:
   SWIFT_VERSION: "6.0"
   SWIFT_STRICT_CONCURRENCY: complete
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.9.3"
 targets:
   Mooz:
     type: application
     platform: macOS
     sources:
       - Mooz
+    dependencies:
+      - package: Sparkle
     info:
       path: Mooz/Info.plist
       properties:
         LSUIElement: true
+        # Version is single-sourced from the repo-root VERSION file. scripts/sync-version.sh
+        # writes MARKETING_VERSION here; the release script bumps CURRENT_PROJECT_VERSION
+        # (Sparkle compares the build number). Never hand-edit the version in two places.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Sparkle auto-update. SUPublicEDKey pairs with the EdDSA private key in
+        # the login keychain (service https://sparkle-project.org) used to sign
+        # each release. SUFeedURL is the appcast Sparkle polls.
+        SUFeedURL: "https://dananz.github.io/mooz/appcast.xml"
+        SUPublicEDKey: "Yuby2HGTViasahcS9uuyY/JRtAOIF48W1ED5DnbndPk="
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
     entitlements:
       path: Mooz/Mooz.entitlements
     settings:
       INFOPLIST_FILE: Mooz/Info.plist
       CODE_SIGN_ENTITLEMENTS: Mooz/Mooz.entitlements
-      # Stable self-signed identity so the TCC Accessibility grant survives
-      # rebuilds. Ad-hoc signing rekeys TCC by cdhash on every build, silently
-      # revoking permission. Manual signing keys TCC by the designated
-      # requirement (bundle id + cert), which is stable across rebuilds.
+      # Developer ID signing for direct distribution. Manual + a stable identity
+      # keeps the TCC Accessibility grant across rebuilds (TCC keys off the
+      # designated requirement: bundle id + cert chain).
       CODE_SIGN_STYLE: Manual
-      CODE_SIGN_IDENTITY: "DisplayPal Development"
+      CODE_SIGN_IDENTITY: "Developer ID Application"
+      DEVELOPMENT_TEAM: Q2V86449AC
+      # Required for notarization.
+      ENABLE_HARDENED_RUNTIME: YES
+      OTHER_CODE_SIGN_FLAGS: --timestamp
+      # Don't inject the get-task-allow debug entitlement (notarization rejects it).
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
       # C/ObjC interop for the original gesture synthesizer (MoozGesture.m).
       SWIFT_OBJC_BRIDGING_HEADER: Mooz/Mooz-Bridging-Header.h
       HEADER_SEARCH_PATHS: $(SRCROOT)/Mooz
@@ -35,3 +58,8 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.dananz.mooz
       PRODUCT_NAME: Mooz
       MACOSX_DEPLOYMENT_TARGET: "14.0"
+      # Kept in sync with VERSION by scripts/sync-version.sh. MARKETING_VERSION is the
+      # user-facing version (== VERSION); CURRENT_PROJECT_VERSION is a monotonic build
+      # number the release script sets from `git rev-list --count HEAD`.
+      MARKETING_VERSION: "1.0"
+      CURRENT_PROJECT_VERSION: "1"
