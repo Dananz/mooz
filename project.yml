@@ -74,8 +74,8 @@ targets:
       # Kept in sync with VERSION by scripts/sync-version.sh. MARKETING_VERSION is the
       # user-facing version (== VERSION); CURRENT_PROJECT_VERSION is a monotonic build
       # number the release script sets from `git rev-list --count HEAD`.
-      MARKETING_VERSION: "1.0"
-      CURRENT_PROJECT_VERSION: "1"
+      MARKETING_VERSION: "1.0.1"
+      CURRENT_PROJECT_VERSION: "9"
   MoozTests:
     type: bundle.unit-test
     platform: macOS
