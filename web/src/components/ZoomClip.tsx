@@ -70,7 +70,7 @@ export default function ZoomClip() {
   const chipBOpacity = useTransform(p, (v) => (v < 0.5 ? 0 : 1));
 
   return (
-    <div className="relative aspect-[4/3] w-full overflow-hidden bg-panel-2">
+    <div className="relative aspect-[4/3] w-full select-none overflow-hidden bg-panel-2">
       {/* Scaled scene. Scales around the focal point; cursor + chip stay pinned. */}
       <motion.div
         className="absolute inset-0"
