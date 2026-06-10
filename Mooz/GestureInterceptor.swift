@@ -50,6 +50,13 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     private let getSensitivity: () -> Double
     private let getAnchorCursor: () -> Bool
 
+    // Side-effect seams. Production defaults are wired in init; tests inject
+    // recorders/fakes so the full event flow runs without a real event tap.
+    private let warpCursor: (CGPoint) -> Void
+    private let applySuppressionInterval: (CFTimeInterval) -> Void
+    private let physicalModifierFlags: () -> CGEventFlags
+    private let now: () -> TimeInterval
+
     /// True while every configured modifier is held. Extra modifiers are
     /// allowed (subset match), so the gesture keeps firing as long as the combo
     /// is down even if another key is brushed — exact-match would drop it.
@@ -61,13 +68,23 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var modifierHeld = false
-    private var gestureActive = false
+    private(set) var modifierHeld = false
+    private(set) var gestureActive = false
     private var smoothedDeltaY: Double = 0
     private var lastGestureTime: TimeInterval = 0
     private var cursorAnchor: CGPoint = .zero
     private var watchdog: Timer?
     private(set) var isRunning = false
+
+    /// Whether the current gesture began with the modifier physically held
+    /// (HID state). Session-only gestures (screen sharing posts modifiers the
+    /// hardware never sees) are exempt from the physical-release watchdog.
+    private var gestureBeganWithPhysicalModifier = false
+    /// Uptime of the last physical-release force-end. While recent, stale
+    /// session flags alone may NOT restart a gesture - that's the loop that
+    /// pinned the cursor forever (2026-06-10 incident).
+    private var physicalForceEndUptime: TimeInterval = -.infinity
+    private static let physicalForceEndCooldown: TimeInterval = 2.0
 
     /// Default local-events suppression interval (0.25s) vs the value that lets
     /// repeated CGWarpMouseCursorPosition calls pin the cursor without the
@@ -75,10 +92,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     private static let warpSuppressionInterval: CFTimeInterval = 0.07
     private static let defaultSuppressionInterval: CFTimeInterval = 0.25
 
-    private func setSuppressionInterval(_ interval: CFTimeInterval) {
-        guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
-        src.localEventsSuppressionInterval = interval
-    }
+    // Suppression is applied through the injected seam (see init).
 
     /// Magnification mapping. Per-pixel rate is multiplied by the user
     /// sensitivity (0.1–3.0); each event's delta is clamped so a single large
@@ -105,14 +119,14 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         gestureActive = active
         if active {
             smoothedDeltaY = 0
-            lastGestureTime = ProcessInfo.processInfo.systemUptime
+            lastGestureTime = now()
             if getAnchorCursor() {
-                setSuppressionInterval(Self.warpSuppressionInterval)
+                applySuppressionInterval(Self.warpSuppressionInterval)
             }
             diagLog("Gesture active (anchor=\(getAnchorCursor()))")
             startWatchdog()
         } else {
-            setSuppressionInterval(Self.defaultSuppressionInterval)
+            applySuppressionInterval(Self.defaultSuppressionInterval)
             stopWatchdog()
             smoothedDeltaY = 0
         }
@@ -122,14 +136,31 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         watchdog?.invalidate()
         watchdog = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
-            guard self.gestureActive else { return }
-            // No movement for a moment → a missed modifier-release or a window
-            // stealing focus mid-gesture. End cleanly so the cursor unfreezes.
-            if ProcessInfo.processInfo.systemUptime - self.lastGestureTime > 0.2 {
-                diagLog("WATCHDOG force-end (no movement 0.2s)")
-                self.emitter.emit(magnification: 0, phase: .ended)
-                self.setGestureActive(false)
-            }
+            self.watchdogTick()
+        }
+    }
+
+    /// One watchdog pass. Internal so tests drive it directly, without timers.
+    func watchdogTick() {
+        guard gestureActive else { return }
+        // The hardware (HID) modifier state is authoritative: combo no longer
+        // physically held → end NOW, even while moves keep arriving. The old
+        // stillness-only check never fired while the mouse was moving, which
+        // left the cursor permanently pinned when session state got stuck.
+        if gestureBeganWithPhysicalModifier, !modifiersMatch(physicalModifierFlags()) {
+            diagLog("WATCHDOG force-end (modifier physically released)")
+            physicalForceEndUptime = now()
+            modifierHeld = false
+            emitter.emit(magnification: 0, phase: .ended)
+            setGestureActive(false)
+            return
+        }
+        // No movement for a moment → a missed modifier-release or a window
+        // stealing focus mid-gesture. End cleanly so the cursor unfreezes.
+        if now() - lastGestureTime > 0.2 {
+            diagLog("WATCHDOG force-end (no movement 0.2s)")
+            emitter.emit(magnification: 0, phase: .ended)
+            setGestureActive(false)
         }
     }
 
@@ -142,6 +173,14 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     /// event while the modifier is held. Shared by drag and scroll paths.
     private func beginGestureIfNeeded(at location: CGPoint) {
         guard !gestureActive else { return }
+        let physicallyHeld = modifiersMatch(physicalModifierFlags())
+        // After a physical-release force-end, event flags saying "still held"
+        // are exactly the lie that wedged the cursor. Demand physical truth to
+        // re-arm until the cooldown passes.
+        if !physicallyHeld, now() - physicalForceEndUptime < Self.physicalForceEndCooldown {
+            return
+        }
+        gestureBeganWithPhysicalModifier = physicallyHeld
         cursorAnchor = location
         emitter.emit(magnification: 0, phase: .began)
         setGestureActive(true)
@@ -153,7 +192,18 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         getRequiredModifiers: @escaping () -> CGEventFlags,
         getInputSource: @escaping () -> InputSource,
         getSensitivity: @escaping () -> Double,
-        getAnchorCursor: @escaping () -> Bool
+        getAnchorCursor: @escaping () -> Bool,
+        warpCursor: @escaping (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) },
+        applySuppressionInterval: @escaping (CFTimeInterval) -> Void = { interval in
+            guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+            src.localEventsSuppressionInterval = interval
+        },
+        // HID hardware modifier state: authoritative even when session-level
+        // bookkeeping (event flags) is stale or our tap dropped the key-up.
+        physicalModifierFlags: @escaping () -> CGEventFlags = {
+            CGEventSource.flagsState(.hidSystemState)
+        },
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.emitter = emitter
         self.shouldIntercept = shouldIntercept
@@ -161,6 +211,10 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         self.getInputSource = getInputSource
         self.getSensitivity = getSensitivity
         self.getAnchorCursor = getAnchorCursor
+        self.warpCursor = warpCursor
+        self.applySuppressionInterval = applySuppressionInterval
+        self.physicalModifierFlags = physicalModifierFlags
+        self.now = now
     }
 
     func start() throws {
@@ -173,7 +227,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         // mid-gesture: re-associate the cursor and restore the suppression
         // interval. Both are harmless if already in their default state.
         CGAssociateMouseAndMouseCursorPosition(1)
-        setSuppressionInterval(Self.defaultSuppressionInterval)
+        applySuppressionInterval(Self.defaultSuppressionInterval)
 
         // mouseMoved is tapped so zoom triggers on modifier+move (no button),
         // the Logitech-style gesture. While zooming, the move is consumed so
@@ -216,6 +270,9 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
                 diagLog("Heartbeat: tapEnabled=\(enabled) eventCount=\(self.eventCount)")
                 if !enabled {
                     diagLog("⚠️ Tap was disabled! Re-enabling...")
+                    // Same reset as tapDisabledByTimeout: events were lost.
+                    self.modifierHeld = false
+                    self.setGestureActive(false)
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
             } else {
@@ -238,14 +295,15 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         isRunning = false
     }
 
-    private static let tapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
+    private static let tapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo = userInfo else { return Unmanaged.passUnretained(event) }
         let interceptor = Unmanaged<GestureInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-        return interceptor.handleEvent(type: type, event: event, proxy: proxy)
+        return interceptor.handleEvent(type: type, event: event)
     }
 
     private var eventCount = 0
-    private func handleEvent(type: CGEventType, event: CGEvent, proxy: CGEventTapProxy) -> Unmanaged<CGEvent>? {
+    /// Internal so tests can feed synthetic CGEvents through the real flow.
+    func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         let passthrough = Unmanaged.passUnretained(event)
 
         // Only log non-mouseMoved events to avoid tap timeout from heavy I/O
@@ -259,6 +317,11 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         // or system intentionally disabled it (e.g., revoking Accessibility permission).
         if type == .tapDisabledByTimeout {
             diagLog("⚠️ TAP DISABLED BY TIMEOUT — re-enabling")
+            // Events (including the modifier key-up) were dropped while the tap
+            // was off: the bookkeeping can't be trusted. Reset before
+            // re-enabling so a stuck gesture can't keep pinning the cursor.
+            modifierHeld = false
+            setGestureActive(false)
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -333,8 +396,10 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             // Anchor the cursor whenever the modifier is held, in BOTH modes.
             // (In scroll mode the move only pins the pointer; the wheel zooms.)
             beginGestureIfNeeded(at: event.location)
-            if anchorCursor { CGWarpMouseCursorPosition(cursorAnchor) }
-            lastGestureTime = ProcessInfo.processInfo.systemUptime
+            // Begin can refuse (post-force-end cooldown): let the move flow.
+            guard gestureActive else { return passthrough }
+            if anchorCursor { warpCursor(cursorAnchor) }
+            lastGestureTime = now()
 
             if inputSource == .mouseDrag {
                 // Low-pass the raw pixel delta (the biggest "buttery" factor),
@@ -359,8 +424,9 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             let magnification = Self.clampMagnification(deltaPixel * sensitivity * Self.magnificationPerPixel)
 
             beginGestureIfNeeded(at: event.location)
-            if getAnchorCursor() { CGWarpMouseCursorPosition(cursorAnchor) }
-            lastGestureTime = ProcessInfo.processInfo.systemUptime
+            guard gestureActive else { return passthrough }
+            if getAnchorCursor() { warpCursor(cursorAnchor) }
+            lastGestureTime = now()
             if abs(magnification) > 0.0005 {
                 emitter.emit(magnification: magnification, phase: .changed)
             }

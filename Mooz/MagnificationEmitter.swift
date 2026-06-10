@@ -1,14 +1,7 @@
 import CoreGraphics
 
-protocol MagnificationEmitting: AnyObject {
-    func emit(magnification: CGFloat, phase: GesturePhase)
-}
-
-enum GesturePhase: Int64 {
-    case began = 1
-    case changed = 2
-    case ended = 4
-}
+// MagnificationEmitting + GesturePhase live in MagnificationEmitting.swift so the
+// unit-test target can compile the interceptor without this class's C dependency.
 
 /// Synthesizes a macOS magnify (pinch-to-zoom) gesture as a full IOHID gesture
 /// blob via `MoozEmitMagnify` (original implementation in `MoozGesture.m`).

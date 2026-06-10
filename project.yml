@@ -7,6 +7,19 @@ options:
 settings:
   SWIFT_VERSION: "6.0"
   SWIFT_STRICT_CONCURRENCY: complete
+schemes:
+  Mooz:
+    build:
+      targets:
+        Mooz: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MoozTests
+    archive:
+      config: Release
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
@@ -63,3 +76,17 @@ targets:
       # number the release script sets from `git rev-list --count HEAD`.
       MARKETING_VERSION: "1.0"
       CURRENT_PROJECT_VERSION: "1"
+  MoozTests:
+    type: bundle.unit-test
+    platform: macOS
+    # Logic tests: compile the interceptor + its protocol directly (no app host,
+    # no C gesture blob, no Accessibility) so they run headless and deterministic.
+    sources:
+      - path: MoozTests
+      - path: Mooz/GestureInterceptor.swift
+      - path: Mooz/MagnificationEmitting.swift
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.dananz.mooz.tests
+      GENERATE_INFOPLIST_FILE: YES
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: "-"
