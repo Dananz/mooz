@@ -44,6 +44,7 @@ export const metadata: Metadata = {
     "accessibility zoom",
   ],
   alternates: { canonical: siteUrl },
+  robots: { index: true, follow: true },
   // App-icon renders as the favicon: light tile (dark glyph) on light browser
   // themes, dark tile (white glyph) on dark - matching the macOS app icon.
   icons: {
