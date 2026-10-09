@@ -91,6 +91,10 @@ scripts/release.sh 1.1.0     # or no argument to release the current VERSION
 
 It builds Release, deep-signs the app and the embedded Sparkle helpers with Developer ID, notarizes and staples the DMG, regenerates the appcast, tags `v<VERSION>`, and creates the GitHub release with `Mooz.dmg` attached. One-time setup (Developer ID cert, a `notarytool` keychain profile, a Sparkle EdDSA key, and an authenticated `gh`) is required; **back up the Sparkle private key**, since losing it stops auto-updates for existing users.
 
+## Windows
+
+A Windows port lives in [`windows/`](windows/README.md): the same gesture as a tray app, written in Rust. It cross-compiles from macOS with `windows/scripts/build.sh`. It is lightly tested on Windows 11: the Ctrl + wheel fallback works there; the default virtual touchpad pinch is not tested yet.
+
 ## Tech stack
 
 Swift 6 and SwiftUI, low-level event taps to read the trigger and synthesize the native pinch gesture (with a small C/Objective-C core), [Sparkle](https://sparkle-project.org) for auto-updates, and XcodeGen for the project. The marketing site is Next.js (static export) deployed to GitHub Pages.
