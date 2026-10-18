@@ -344,7 +344,7 @@ impl SettingsApp {
         card(ui, |ui| {
             note(ui, "Mooz zooms with a two-finger pinch on a virtual precision touchpad, the same signal a real touchpad sends, so browsers and other apps zoom smoothly at the cursor. Windows Settings, Touchpad, Pinch to zoom must stay on.");
             divider(ui);
-            note(ui, "On Windows versions without touchpad injection, Mooz sends Ctrl + mouse wheel instead. That zoom goes to the active window, in the app's own steps.");
+            note(ui, "On Windows versions without touchpad injection (Windows 10, older Windows 11), the pinch goes on a virtual touchscreen around the cursor instead: the same smooth zoom in browsers. If that fails too, Mooz sends Ctrl + mouse wheel, which zooms the active window in the app's own steps.");
             divider(ui);
             note(ui, "Windows blocks input into apps running as administrator. To zoom in those, run Mooz as administrator too.");
             divider(ui);
@@ -381,8 +381,8 @@ fn usage_sentence(modifiers: Modifiers, source: InputSource) -> String {
 
 fn zoom_method_note(method: ZoomMethod, pinch_available: bool) -> &'static str {
     match (method, pinch_available) {
-        (ZoomMethod::Pinch, true) => "A two-finger pinch on a virtual touchpad: smooth zoom right where the cursor is, like a real touchpad.",
-        (ZoomMethod::Pinch, false) => "This version of Windows can't host a virtual touchpad (it needs a recent Windows 11), so Mooz uses Ctrl + wheel.",
+        (ZoomMethod::Pinch, true) => "A virtual two-finger pinch: smooth zoom right where the cursor is, like a real touchpad.",
+        (ZoomMethod::Pinch, false) => "This version of Windows can't host a virtual touchpad or touchscreen, so Mooz uses Ctrl + wheel.",
         (ZoomMethod::Wheel, _) => "Sends Ctrl + mouse wheel. Works everywhere, but apps zoom in their own steps.",
     }
 }

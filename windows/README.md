@@ -39,7 +39,7 @@ Visual C++ redistributable is needed.
 | --- | --- |
 | CGEventTap on the session | `WH_MOUSE_LL` hook on a dedicated thread with its own message loop |
 | Cursor pinned by warping back every frame | Swallowing `WM_MOUSEMOVE` in the hook keeps the cursor still; the movement is `pt - anchor` |
-| Synthesized IOHID magnify gesture | Two-finger pinch on a gesture-only virtual precision touchpad (`CreateSyntheticPointerDevice2`, Windows 11); Ctrl + wheel via `SendInput` as the fallback |
+| Synthesized IOHID magnify gesture | Two-finger pinch on a gesture-only virtual precision touchpad (`CreateSyntheticPointerDevice2`, Windows 11), or on the touchscreen around the cursor (`InjectTouchInput`, Windows 10); Ctrl + wheel via `SendInput` as the last fallback |
 | HID modifier state for the watchdog | `GetAsyncKeyState`, overruled by a `WH_KEYBOARD_LL` physical-state tracker |
 | Frontmost app bundle ID | Foreground window's exe name (`EVENT_SYSTEM_FOREGROUND`) |
 | UserDefaults, read live | `%APPDATA%\Mooz\config.json`, reloaded when its mtime changes |
@@ -72,8 +72,20 @@ Layout:
   fallback a real touchpad produces. Ctrl + wheel can't do this: Chromium
   never marks `WM_MOUSEWHEEL` as precise, so it only ever does its step page
   zoom. Frames are paced at ~120 Hz with keep-alives while the fingers are
-  down; when they'd leave the pad they lift and re-grip. If the API is
-  missing or an injection fails, Mooz uses Ctrl + wheel.
+  down; when they'd leave the pad they lift and re-grip.
+- **A touchscreen pinch where there's no virtual touchpad.** On Windows 10
+  and older Windows 11 builds the same two fingers go on the touchscreen
+  (`InjectTouchInput`, no visual feedback), placed on screen around the
+  cursor, 120 px apart at the start and at most 384 px. Browsers treat it as
+  a touch pinch: the same smooth zoom at the cursor. Apps without touch
+  support get Windows' legacy translation of the zoom gesture (Ctrl + wheel).
+  The fingers' center is moved inward near a monitor edge so both stay on
+  screen, and the cursor is put back where it was when they lift. A
+  touchscreen from `CreateSyntheticPointerDevice` (`PT_TOUCH`) looks like
+  the obvious choice, but with several monitors its contacts land far from
+  the requested pixels (on the taskbar, in testing); touch injection maps
+  them exactly on every monitor, negative coordinates included. If neither
+  pinch works, or an injection fails, Mooz uses Ctrl + wheel.
 - **Ctrl + wheel fallback, Steps by default.** Many apps zoom one level per wheel message no matter
   the delta, and Chromium counts whole wheel ticks (`HandleWheelEvent` in
   `web_contents_impl.cc`). So the default sends whole notches (120), at most
@@ -102,10 +114,15 @@ Layout:
 
 ## Known limits
 
-- The pinch needs a Windows 11 build with `CreateSyntheticPointerDevice2`
-  (Microsoft's docs still mark it pre-release). Settings says when it's
-  missing. Windows Settings, Bluetooth & devices, Touchpad, **Pinch to zoom**
+- The touchpad pinch needs a Windows 11 build with
+  `CreateSyntheticPointerDevice2` (Microsoft's docs still mark it
+  pre-release); elsewhere Mooz uses the touchscreen pinch. For the touchpad
+  pinch, Windows Settings, Bluetooth & devices, Touchpad, **Pinch to zoom**
   must be on.
+- The touchscreen pinch goes to the window under the cursor, and to apps
+  that handle touch it is a real touch: one that uses touch to drag or
+  select can do that instead of zooming. Pick Ctrl + Wheel in Settings for
+  those.
 
 - Keyboard state belongs to the active window, so the zoom lands in the
   active window. With "scroll inactive windows" on, pointing at a different
@@ -124,7 +141,8 @@ Layout:
 
 Settings, About, **Debug log** (or `"debug": true` in config.json) writes
 `%TEMP%\mooz-debug.log`: config, hook installs, whether the virtual touchpad
-was created, foreground app, each gesture's begin/end with the modifiers seen,
+was created (or touch injection is used instead), where each touchscreen
+pinch lands and which app is under it, foreground app, each gesture's begin/end with the modifiers seen,
 moves swallowed and any cursor drift that had to be corrected, pinch frames
 and re-grips, injection errors, and every Ctrl + wheel tick.
 
@@ -133,3 +151,5 @@ and re-grips, injection errors, and every Ctrl + wheel tick.
 Lightly tested on Windows 11. The hook, tray, Settings window and the
 Ctrl + wheel path ran and zoomed. The virtual touchpad pinch (now the
 default) and cursor pinning are not confirmed yet; the debug log records both.
+On Windows 10 (22H2, three monitors) the touchscreen pinch zoomed Chrome
+smoothly at the cursor.
