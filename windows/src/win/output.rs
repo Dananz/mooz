@@ -1,7 +1,7 @@
 //! The output thread: turns the engine's gesture stream into zoom. With the
-//! Pinch method it drives the virtual touchpad (paced at ~120 Hz, with
-//! keep-alive frames while the fingers are down, like a real touchpad's
-//! continuous reports); with the Wheel method, or when the touchpad isn't
+//! Pinch method it drives the virtual touchpad or touchscreen (paced at
+//! ~120 Hz, with keep-alive frames while the fingers are down, like a real
+//! touchpad's continuous reports); with the Wheel method, or when neither is
 //! available, it sends Ctrl + wheel ticks.
 
 use super::emit;
@@ -115,11 +115,15 @@ impl Output {
                 self.active = true;
                 self.pinching = self.method == ZoomMethod::Pinch && self.device.is_some();
                 if self.pinching {
-                    self.pending = 1.0;
+                    if let Some(device) = self.device.as_mut() {
+                        let range = device.start();
+                        self.pinch.set_range(range);
+                    }
+                    // The fingers go down with the first movement, at the end
+                    // of their range that leaves the most room for its direction.
+                    self.pending = 1.0 + magnification;
                     self.frames = 0;
                     self.regrips = 0;
-                    let frames = self.pinch.begin();
-                    self.inject(frames, now);
                 } else {
                     self.wheel(magnification, phase, now);
                 }
@@ -170,7 +174,7 @@ impl Output {
         }
         let frames = self.pinch.change(self.pending - 1.0);
         self.pending = 1.0;
-        if frames.len() > 1 {
+        if matches!(frames.first(), Some(crate::core::pinch::Frame::Lift(_))) {
             self.regrips += 1;
         }
         self.inject(frames, now);
