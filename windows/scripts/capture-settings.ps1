@@ -36,6 +36,7 @@ try {
         } finally { $bitmap.Dispose() }
         Remove-Item "$prefix.rgba", "$prefix.size"
         Write-Host "Captured $state ($width x $height)"
+        Get-Content "$prefix.renderer.txt" -ErrorAction SilentlyContinue
     }
 } finally {
     Remove-Item Env:MOOZ_CONFIG, Env:MOOZ_PREVIEW_SHOT, Env:MOOZ_PREVIEW_TAB, Env:MOOZ_PREVIEW_STATE -ErrorAction SilentlyContinue

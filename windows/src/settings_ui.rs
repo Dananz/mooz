@@ -50,9 +50,21 @@ pub fn run() -> eframe::Result {
             .with_min_inner_size([PAGE_WIDTH, 420.0])
             .with_icon(Arc::new(icon)),
         centered: true,
+        #[cfg(windows)]
+        renderer: eframe::Renderer::Wgpu,
+        #[cfg(windows)]
+        wgpu_options: windows_renderer(),
         ..Default::default()
     };
     eframe::run_native(WINDOW_TITLE, options, Box::new(|cc| Ok(Box::new(SettingsApp::new(cc)))))
+}
+
+/// DirectX also works with Windows' software adapter on basic display drivers.
+#[cfg(windows)]
+fn windows_renderer() -> eframe::egui_wgpu::WgpuConfiguration {
+    let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::default();
+    setup.instance_descriptor.backends = wgpu::Backends::DX12;
+    eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
 }
 
 struct SettingsApp {
@@ -75,6 +87,10 @@ struct SettingsApp {
 
 impl SettingsApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(windows)]
+        if let (Some(path), Some(renderer)) = (std::env::var_os("MOOZ_PREVIEW_SHOT"), &cc.wgpu_render_state) {
+            let _ = std::fs::write(format!("{}.renderer.txt",path.to_string_lossy()),format!("{:?}",renderer.adapter.get_info()));
+        }
         install_fonts(&cc.egui_ctx);
         style(&cc.egui_ctx);
         let image = egui::ColorImage::from_rgba_unmultiplied(
