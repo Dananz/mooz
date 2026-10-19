@@ -796,6 +796,8 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
 // MARK: - Look
 
 fn style(ctx: &egui::Context) {
+    // The chosen settings design has a fixed dark palette, including on light Windows desktops.
+    ctx.set_theme(egui::Theme::Dark);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BG;
     visuals.window_fill = CARD;
@@ -887,5 +889,22 @@ mod preview_shot {
             }
             Some(self.tab)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn light_system_theme_cannot_override_the_settings_palette() {
+        let ctx = egui::Context::default();
+        style(&ctx);
+        let input = egui::RawInput { system_theme: Some(egui::Theme::Light), ..Default::default() };
+        let _ = ctx.run(input, |ctx| {
+            assert_eq!(ctx.theme(), egui::Theme::Dark);
+            assert_eq!(ctx.style().visuals.text_color(), TEXT);
+            assert_eq!(ctx.style().visuals.widgets.inactive.bg_fill, CONTROL_BG);
+        });
     }
 }
