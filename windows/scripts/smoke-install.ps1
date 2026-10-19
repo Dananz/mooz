@@ -6,6 +6,14 @@ $root = Join-Path $env:LOCALAPPDATA 'Mooz'
 $config = Join-Path $env:APPDATA 'Mooz/config.json'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $testFeed = Join-Path $env:RUNNER_TEMP 'mooz-update-feed'
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class MoozSmokeWindow {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+}
+'@
 function Wait-Until([scriptblock]$Condition, [string]$Failure) {
     $end = (Get-Date).AddSeconds(45)
     while ((Get-Date) -lt $end) {
@@ -24,7 +32,7 @@ try {
     Wait-Until { Test-Path "$root/current/Mooz.exe" } 'Installed executable missing.'
     # --silent intentionally suppresses the installer's normal first launch.
     Start-Process -FilePath "$root/current/Mooz.exe" | Out-Null
-    Wait-Until { @(Get-Process Mooz -ErrorAction SilentlyContinue).Count -gt 0 } 'Mooz did not launch.'
+    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Mooz tray did not become ready.'
     Stop-Mooz
     New-Item (Split-Path $config) -ItemType Directory -Force | Out-Null
     '{"sensitivity":1.7,"checkUpdates":false,"onboarded":true}' | Set-Content $config
@@ -39,9 +47,8 @@ try {
     Wait-Until { (Get-Content "$root/current/sq.version" -Raw) -match '<version>99.0.0</version>' } 'Update did not apply.'
     if ((Get-Content $config -Raw | ConvertFrom-Json).sensitivity -ne 1.7) { throw 'Update lost preferences.' }
     if (!(Get-ItemPropertyValue $runKey -Name Mooz)) { throw 'Update lost startup preference.' }
-    $p = Start-Process "$root/current/Mooz.exe" -PassThru
-    Start-Sleep -Seconds 2
-    if ($p.HasExited) { throw 'Updated tray failed to launch.' }
+    Start-Process "$root/current/Mooz.exe" | Out-Null
+    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Updated tray did not become ready.'
     Stop-Mooz
     $p = Start-Process "$root/Update.exe" -ArgumentList '--silent uninstall' -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "Uninstall failed: $($p.ExitCode)" }
