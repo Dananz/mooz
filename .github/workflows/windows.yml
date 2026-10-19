@@ -1,0 +1,42 @@
+# Builds, lints and tests the Windows app natively on a Windows runner and
+# uploads the packaged Mooz.exe as an artifact.
+name: windows
+
+on:
+  pull_request:
+    paths: ["windows/**", "VERSION", ".github/workflows/windows.yml"]
+  push:
+    branches: [main]
+    paths: ["windows/**", "VERSION", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+      - name: Test
+        run: cargo test
+      - name: Clippy
+        run: cargo clippy --release -- -D warnings
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Get-Content ../VERSION -Raw).Trim()
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Force -Path target/release/Mooz.exe -DestinationPath "dist/Mooz-$version-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mooz-windows-x64
+          path: windows/dist/*.zip

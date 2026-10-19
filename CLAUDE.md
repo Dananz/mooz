@@ -35,3 +35,10 @@ Flat file structure with an @Observable @MainActor orchestrator.
 local identity (`CODE_SIGN_IDENTITY` in `project.yml`) so the TCC Accessibility
 grant survives rebuilds. Requires Accessibility permission (System Settings ▸
 Privacy & Security ▸ Accessibility).
+
+## Windows port
+`windows/` is a separate Rust crate (tray app, `WH_MOUSE_LL` hook, Ctrl+wheel
+injection, egui Settings). Core logic in `windows/src/core/` is OS-free and
+tested with `cargo test` on any machine; `windows/scripts/build.sh`
+cross-compiles with cargo-xwin. See `windows/README.md`.
+
