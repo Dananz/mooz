@@ -6,6 +6,9 @@ $root = Join-Path $env:LOCALAPPDATA 'Mooz'
 $config = Join-Path $env:APPDATA 'Mooz/config.json'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $testFeed = Join-Path $env:RUNNER_TEMP 'mooz-update-feed'
+$diagnostics = Join-Path $env:RUNNER_TEMP 'mooz-smoke'
+New-Item $diagnostics -ItemType Directory -Force | Out-Null
+$testStarted = Get-Date
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -23,16 +26,27 @@ function Wait-Until([scriptblock]$Condition, [string]$Failure) {
     throw $Failure
 }
 function Stop-Mooz { Get-Process Mooz -ErrorAction SilentlyContinue | Stop-Process -Force }
+function Start-Mooz {
+    $app = Start-Process -FilePath "$root/current/Mooz.exe" -PassThru `
+        -RedirectStandardOutput "$diagnostics/stdout.log" -RedirectStandardError "$diagnostics/stderr.log"
+    Write-Host "Mooz PID $($app.Id); runner session $((Get-Process -Id $PID).SessionId)"
+    if ($app.WaitForExit(1500)) {
+        throw "Mooz exited during startup: $($app.ExitCode) (0x$($app.ExitCode.ToString('X8')))"
+    }
+    Write-Host "Mooz session $($app.SessionId)"
+    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Mooz tray did not become ready.'
+}
 if (!$env:GITHUB_ACTIONS) { throw 'This smoke test runs only on disposable GitHub runners.' }
 if (Test-Path $root) { throw 'Refusing to replace an existing installation.' }
 try {
     $setup = (Resolve-Path "$Releases/Mooz-win-Setup.exe").Path
-    $process = Start-Process -FilePath $setup -ArgumentList '--silent' -PassThru -Wait
+    $process = Start-Process -FilePath $setup -ArgumentList @('--silent', '--log', "$diagnostics/install.log") -PassThru -Wait
     if ($process.ExitCode -ne 0) { throw "Install failed: $($process.ExitCode)" }
     Wait-Until { Test-Path "$root/current/Mooz.exe" } 'Installed executable missing.'
+    New-Item (Split-Path $config) -ItemType Directory -Force | Out-Null
+    '{"debug":true,"checkUpdates":false,"onboarded":true}' | Set-Content $config
     # --silent intentionally suppresses the installer's normal first launch.
-    Start-Process -FilePath "$root/current/Mooz.exe" | Out-Null
-    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Mooz tray did not become ready.'
+    Start-Mooz
     Stop-Mooz
     New-Item (Split-Path $config) -ItemType Directory -Force | Out-Null
     '{"sensitivity":1.7,"checkUpdates":false,"onboarded":true}' | Set-Content $config
@@ -47,14 +61,24 @@ try {
     Wait-Until { (Get-Content "$root/current/sq.version" -Raw) -match '<version>99.0.0</version>' } 'Update did not apply.'
     if ((Get-Content $config -Raw | ConvertFrom-Json).sensitivity -ne 1.7) { throw 'Update lost preferences.' }
     if (!(Get-ItemPropertyValue $runKey -Name Mooz)) { throw 'Update lost startup preference.' }
-    Start-Process "$root/current/Mooz.exe" | Out-Null
-    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Updated tray did not become ready.'
+    Start-Mooz
     Stop-Mooz
     $p = Start-Process "$root/Update.exe" -ArgumentList '--silent uninstall' -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "Uninstall failed: $($p.ExitCode)" }
     Wait-Until { !(Test-Path "$root/current/Mooz.exe") } 'Uninstall left application files.'
     if (Get-ItemProperty $runKey -Name Mooz -ErrorAction SilentlyContinue) { throw 'Uninstall left startup registration.' }
     Write-Host 'OK: install, launch, SDK check/download/apply, settings/startup preservation, upgraded launch, uninstall.'
+} catch {
+    Get-Process Mooz -ErrorAction SilentlyContinue | Format-List Id, SessionId, MainWindowTitle, Responding
+    Get-ChildItem $diagnostics -File | ForEach-Object {
+        Write-Host "--- $($_.Name) ---"
+        Get-Content $_.FullName -Tail 60 -ErrorAction SilentlyContinue
+    }
+    $debugLog = Join-Path ([IO.Path]::GetTempPath()) 'mooz-debug.log'
+    if (Test-Path $debugLog) { Get-Content $debugLog -Tail 60 }
+    Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$testStarted} -ErrorAction SilentlyContinue |
+        Where-Object Message -Match 'Mooz' | Select-Object -First 5 TimeCreated, Message | Format-List
+    throw
 } finally {
     Stop-Mooz
 }
