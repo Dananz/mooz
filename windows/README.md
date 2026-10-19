@@ -166,3 +166,11 @@ Windows PR builds include an unsigned test installer and update packages as CI
 artifacts. Trusted signing credentials must be configured before a public release.
 See [RELEASING.md](RELEASING.md) for packaging, signing, the GitHub update feed,
 release publication, and the install/upgrade/uninstall smoke test.
+
+### Essentials settings
+
+The settings window keeps mouse zoom, shortcut editing, input source and sensitivity in one flat view. Expand **Behavior & startup** for anchoring, zoom method, wheel style and Windows startup. Changes save immediately.
+
+**Edit shortcuts** records one or more alternative hold-to-zoom combinations. Click **Add shortcut** (or an existing shortcut), release any keys already held, then press and release the new combination. Modifier-only shortcuts are supported; a combination may also include one ordinary key. Escape, Tab, changing tabs or leaving the window cancels recording. Duplicates are rejected and the final shortcut cannot be removed. Existing `modifiers` configs continue to work; new `shortcuts` entries persist separately and the gesture engine accepts any configured combination. Mooz does not intercept gestures inside its own settings window.
+
+Windows CI captures the actual native settings renderer in the `Mooz-settings-windows` artifact, alongside the unsigned installer artifact. The installer upgrade smoke test preserves recorded shortcuts as well as sensitivity and startup registration.

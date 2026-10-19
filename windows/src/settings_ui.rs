@@ -9,6 +9,7 @@ use crate::core::config::{
 };
 use crate::core::modifiers::Modifiers;
 use crate::platform;
+use crate::core::shortcut::{Shortcut, Recorder};
 use eframe::egui::{
     self, Align, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Frame, Layout,
     Margin, RichText, Sense, Stroke, StrokeKind, TextureHandle, Ui, Vec2,
@@ -30,7 +31,7 @@ const MUTED: Color32 = Color32::from_rgb(0x9A, 0x9A, 0xA1);
 const ACCENT: Color32 = Color32::from_rgb(0xFF, 0xB0, 0x20);
 const ON_ACCENT: Color32 = Color32::from_rgb(0x1C, 0x14, 0x00);
 
-const PAGE_WIDTH: f32 = 500.0;
+const PAGE_WIDTH: f32 = 450.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -45,8 +46,8 @@ pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(WINDOW_TITLE)
-            .with_inner_size([PAGE_WIDTH + 40.0, 700.0])
-            .with_min_inner_size([PAGE_WIDTH + 40.0, 420.0])
+            .with_inner_size([PAGE_WIDTH, if preview_shot::state("behavior") {780.0} else if preview_shot::state("shortcuts") {650.0} else {494.0}])
+            .with_min_inner_size([PAGE_WIDTH, 420.0])
             .with_icon(Arc::new(icon)),
         centered: true,
         ..Default::default()
@@ -65,7 +66,10 @@ struct SettingsApp {
     pinch_available: bool,
     updater: crate::updates::Updater,
     checked_updates: bool,
-    #[cfg(not(windows))]
+    shortcuts_open: bool,
+    behavior_open: bool,
+    recording: Option<(Option<usize>, Recorder)>,
+    shortcut_error: Option<String>,
     preview: preview_shot::PreviewShot,
 }
 
@@ -89,7 +93,10 @@ impl SettingsApp {
             pinch_available: platform::native_pinch_available(),
             updater: crate::updates::Updater::new(),
             checked_updates: false,
-            #[cfg(not(windows))]
+            shortcuts_open: preview_shot::state("shortcuts"),
+            behavior_open: preview_shot::state("behavior"),
+            recording: None,
+            shortcut_error: None,
             preview: preview_shot::PreviewShot::from_env(),
         }
     }
@@ -97,7 +104,6 @@ impl SettingsApp {
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        #[cfg(not(windows))]
         if let Some(tab) = self.preview.step(ctx) {
             self.tab = tab;
         }
@@ -112,14 +118,30 @@ impl eframe::App for SettingsApp {
         }
         ctx.request_repaint_after(Duration::from_secs(1));
         let before = self.watcher.config.clone();
+        self.poll_recording(ctx);
 
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(20, 16)))
+            .frame(Frame::new().fill(BG))
             .show(ctx, |ui| {
-                tab_bar(ui, &mut self.tab);
-                ui.add_space(14.0);
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                Frame::new().inner_margin(Margin::symmetric(24, 18)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::new(&self.icon).fit_to_exact_size(Vec2::splat(26.0)));
+                        ui.add_space(2.0);
+                        ui.label(RichText::new("Mooz").size(18.0).strong());
+                        ui.label(RichText::new("│  Settings").color(MUTED));
+                    });
+                });
+                line(ui);
+                let previous_tab = self.tab;
+                Frame::new().inner_margin(Margin {left:16,right:16,top:12,bottom:0}).show(ui, |ui| { tab_bar(ui, &mut self.tab); });
+                if previous_tab != self.tab { self.recording = None; }
+                line(ui);
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    Frame::new().inner_margin(Margin::same(28)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     match self.tab {
                         Tab::General => self.general(ui),
                         Tab::Applications => self.applications(ui),
@@ -130,6 +152,7 @@ impl eframe::App for SettingsApp {
                         ui.add_space(8.0);
                         ui.label(RichText::new(err).color(Color32::from_rgb(0xFF, 0x6B, 0x6B)));
                     }
+                    });
                 });
             });
 
@@ -148,8 +171,14 @@ impl eframe::App for SettingsApp {
 impl SettingsApp {
     fn updates(&mut self, ui: &mut Ui) {
         use crate::updates::Status;
-        ui.heading("Updates");
-        ui.label(RichText::new(format!("Mooz {VERSION} for Windows")).color(MUTED));
+        ui.label(RichText::new("Updates").size(20.0).strong());
+        hint(ui, "Choose when to download and install.");
+        ui.add_space(24.0);
+        ui.horizontal(|ui| {
+            ui.add(egui::Image::new(&self.icon).fit_to_exact_size(Vec2::splat(56.0)));
+            ui.add_space(8.0);
+            ui.label(RichText::new(format!("Mooz {VERSION}")).size(20.0).strong());
+        });
         ui.add_space(18.0);
         card(ui, |ui| {
             row(ui, "Check automatically", Some("Checks in the background. You choose when to download and restart."), |ui| {
@@ -190,94 +219,131 @@ impl SettingsApp {
         if link(ui, "Release notes on GitHub").clicked() { platform::open_url(crate::updates::RELEASES); }
     }
 
+    fn poll_recording(&mut self, ctx: &egui::Context) {
+        if self.recording.is_none() { return; }
+        ctx.request_repaint_after(Duration::from_millis(16));
+        if ctx.input(|i| !i.focused || i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Tab)) {
+            self.recording = None;
+            return;
+        }
+        let held = held_shortcut(ctx);
+        let Some((index, recorder)) = &mut self.recording else { return; };
+        if let Some(shortcut) = recorder.sample(held) {
+            let index = *index;
+            let mut shortcuts = self.watcher.config.effective_shortcuts();
+            if shortcuts.iter().enumerate().any(|(i, s)| Some(i) != index && *s == shortcut) {
+                self.shortcut_error = Some("That shortcut is already in the list.".into());
+            } else {
+                if let Some(i) = index.filter(|i| *i < shortcuts.len()) { shortcuts[i] = shortcut; }
+                else { shortcuts.push(shortcut); }
+                self.watcher.config.set_shortcuts(shortcuts);
+            }
+            self.recording = None;
+        }
+    }
+
+    fn shortcut_editor(&mut self, ui: &mut Ui) {
+        let mut shortcuts = self.watcher.config.effective_shortcuts();
+        let mut remove = None;
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
+            for (i, shortcut) in shortcuts.iter().enumerate() {
+                Frame::new().fill(CONTROL_BG).stroke(Stroke::new(1.0_f32, Color32::from_gray(65)))
+                    .corner_radius(7).inner_margin(Margin::symmetric(4, 4)).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.add_enabled(self.recording.is_none(), egui::Button::new(shortcut.label()).frame(false).min_size(Vec2::new(0.0, 32.0)))
+                                .on_hover_text("Change shortcut").clicked() {
+                                self.shortcut_error = None;
+                                self.recording = Some((Some(i), Recorder::waiting_for_release()));
+                            }
+                            if ui.add_enabled(shortcuts.len() > 1 && self.recording.is_none(), egui::Button::new(RichText::new("Remove").small().color(MUTED)).frame(false)).clicked() { remove = Some(i); }
+                        });
+                    });
+            }
+            if ui.add_enabled(self.recording.is_none(), egui::Button::new(RichText::new("Add shortcut").color(ACCENT)).fill(Color32::TRANSPARENT).stroke(Stroke::new(1.0_f32, Color32::from_rgb(76,67,50))).min_size(Vec2::new(0.0,42.0))).clicked() {
+                self.shortcut_error = None;
+                self.recording = Some((None, Recorder::waiting_for_release()));
+            }
+        });
+        if let Some(i) = remove {
+            shortcuts.remove(i);
+            self.watcher.config.set_shortcuts(shortcuts);
+            self.shortcut_error = None;
+        }
+        if let Some((_, recorder)) = &self.recording {
+            ui.add_space(10.0);
+            Frame::new().fill(Color32::from_rgb(37,35,29)).stroke(Stroke::new(1.0_f32,ACCENT)).corner_radius(7).inner_margin(10).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let text = if recorder.draft().valid() {recorder.draft().label()} else {"Press your keys…".into()};
+                ui.label(RichText::new(text).color(TEXT));
+                ui.label(RichText::new("Release to save. Esc cancels.").small().color(MUTED));
+            });
+            if link(ui,"Cancel recording").clicked() { self.recording = None; }
+        } else {
+            hint(ui, self.shortcut_error.as_deref().unwrap_or("Click a shortcut to change it. At least one stays enabled."));
+        }
+        ui.add_space(18.0);
+    }
+
     fn general(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Mouse zoom").size(20.0).strong());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| { toggle(ui, &mut self.watcher.config.enabled).on_hover_text("Enable Mooz"); });
+        });
+        ui.add_space(25.0);
+        let summary = self.watcher.config.shortcut_label();
+        disclosure(ui, "Edit shortcuts", Some(&summary), &mut self.shortcuts_open);
+        if self.shortcuts_open { self.shortcut_editor(ui); }
+        else { self.recording = None; }
+        line(ui);
+        ui.add_space(14.0);
         let c = &mut self.watcher.config;
-
-        card(ui, |ui| {
-            row(ui, "Enable Mooz", Some("Emulate trackpad pinch-to-zoom with your mouse."), |ui| {
-                toggle(ui, &mut c.enabled);
+        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(),38.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.label("Zoom with");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                egui::ComboBox::from_id_salt("input-source").width(110.0)
+                    .selected_text(match c.input_source {InputSource::MouseDrag=>"Mouse Drag",InputSource::ScrollWheel=>"Scroll Wheel"})
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut c.input_source,InputSource::MouseDrag,"Mouse Drag");
+                        ui.selectable_value(&mut c.input_source,InputSource::ScrollWheel,"Scroll Wheel");
+                    });
             });
         });
-
-        section(ui, "Gesture");
-        card(ui, |ui| {
-            row(ui, "Trigger keys", Some("Hold these while you move the mouse or scroll."), |_| {});
+        ui.add_space(20.0);
+        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(),38.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.label("Sensitivity");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {ui.label(RichText::new(format!("{:.1}×",c.sensitivity)).small().color(MUTED));});
+        });
+        ui.add_space(8.0);
+        slider(ui,&mut c.sensitivity,SENSITIVITY_MIN..=SENSITIVITY_MAX,0.1,ui.available_width());
+        ui.add_space(28.0);
+        line(ui);
+        disclosure(ui,"Behavior & startup",None,&mut self.behavior_open);
+        if self.behavior_open {
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                for (m, name) in Modifiers::ORDERED {
-                    let on = c.modifiers.contains(m);
-                    if chip(ui, name, on).clicked() {
-                        let next = c.modifiers.toggled(m);
-                        // Keep at least one key: an empty combo would never zoom.
-                        if !next.is_empty() {
-                            c.modifiers = next;
-                        }
-                    }
-                }
-            });
+            row(ui, "Anchor cursor while zooming", Some("Locks the pointer in place during a zoom so the page doesn't pan. Turn off to let the cursor move freely."), |ui| { toggle(ui, &mut c.anchor_cursor); });
             divider(ui);
-            row(ui, "Input source", None, |ui| {
-                segmented(
-                    ui,
-                    &mut c.input_source,
-                    &[(InputSource::MouseDrag, "Mouse Drag"), (InputSource::ScrollWheel, "Scroll Wheel")],
-                );
-            });
-            divider(ui);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Sensitivity").color(TEXT));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(format!("{:.1}×", c.sensitivity)).color(MUTED));
-                });
-            });
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Slower").small().color(MUTED));
-                let width = ui.available_width() - 48.0;
-                slider(ui, &mut c.sensitivity, SENSITIVITY_MIN..=SENSITIVITY_MAX, 0.1, width);
-                ui.label(RichText::new("Faster").small().color(MUTED));
-            });
-        });
-        hint(ui, &usage_sentence(c.modifiers, c.input_source));
-
-        section(ui, "Behavior");
-        card(ui, |ui| {
-            row(
-                ui,
-                "Anchor cursor while zooming",
-                Some("Locks the pointer in place during a zoom so the page doesn't pan. Turn off to let the cursor move freely."),
-                |ui| {
-                    toggle(ui, &mut c.anchor_cursor);
-                },
-            );
-            divider(ui);
-            let method_note = zoom_method_note(c.zoom_method, self.pinch_available);
-            row(ui, "Zoom method", Some(method_note), |ui| {
-                segmented(ui, &mut c.zoom_method, &[(ZoomMethod::Pinch, "Pinch"), (ZoomMethod::Wheel, "Ctrl + Wheel")]);
+            row(ui,"Zoom method",Some(zoom_method_note(c.zoom_method,self.pinch_available)),|ui| {
+                segmented(ui,&mut c.zoom_method,&[(ZoomMethod::Pinch,"Pinch"),(ZoomMethod::Wheel,"Ctrl + Wheel")]);
             });
             if c.zoom_method == ZoomMethod::Wheel || !self.pinch_available {
                 divider(ui);
-                row(ui, "Wheel zoom", Some(zoom_style_note(c.zoom_style)), |ui| {
-                    segmented(ui, &mut c.zoom_style, &[(ZoomStyle::Steps, "Steps"), (ZoomStyle::Smooth, "Smooth")]);
-                });
+                row(ui,"Wheel zoom",Some(zoom_style_note(c.zoom_style)),|ui| {segmented(ui,&mut c.zoom_style,&[(ZoomStyle::Steps,"Steps"),(ZoomStyle::Smooth,"Smooth")]);});
             }
-        });
-
-        section(ui, "System");
-        card(ui, |ui| {
-            row(ui, "Start with Windows", Some("Launch Mooz in the tray when you sign in."), |ui| {
-                let mut on = self.autostart;
-                if toggle(ui, &mut on).changed() {
-                    match platform::set_autostart(on) {
-                        Ok(()) => self.autostart = on,
-                        Err(e) => self.save_error = Some(format!("Couldn't change startup: {e}")),
-                    }
+            divider(ui);
+            row(ui,"Start with Windows",None,|ui| {
+                let mut on=self.autostart;
+                if toggle(ui,&mut on).changed() {
+                    match platform::set_autostart(on) {Ok(())=>self.autostart=on,Err(e)=>self.save_error=Some(format!("Couldn't change startup: {e}"))}
                 }
             });
-        });
+        }
     }
 
     fn applications(&mut self, ui: &mut Ui) {
+        ui.label(RichText::new("Applications").size(20.0).strong());
+        hint(ui, "Choose where your mouse can zoom.");
+        ui.add_space(18.0);
         let c = &mut self.watcher.config;
 
         card(ui, |ui| {
@@ -428,14 +494,6 @@ impl SettingsApp {
 
 // MARK: - Copy
 
-fn usage_sentence(modifiers: Modifiers, source: InputSource) -> String {
-    let keys = modifiers.label();
-    match source {
-        InputSource::MouseDrag => format!("Hold {keys} and move the mouse up to zoom in, down to zoom out."),
-        InputSource::ScrollWheel => format!("Hold {keys} and scroll to zoom."),
-    }
-}
-
 fn zoom_method_note(method: ZoomMethod, pinch_available: bool) -> &'static str {
     match (method, pinch_available) {
         (ZoomMethod::Pinch, true) => "A virtual two-finger pinch: smooth zoom right where the cursor is, like a real touchpad.",
@@ -527,6 +585,8 @@ fn slider(
 
     let snap = |v: f64| ((v / step).round() * step).clamp(min, max);
     let mut next = *value;
+    if response.clicked() || response.drag_started() { response.request_focus(); }
+    response.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), *value, "Sensitivity"));
     if let Some(pos) = response.interact_pointer_pos() {
         let t = f64::from(((pos.x - track.left()) / track.width()).clamp(0.0, 1.0));
         next = snap(min + t * (max - min));
@@ -550,9 +610,9 @@ fn slider(
         let t = ((*value - min) / (max - min)) as f32;
         let x = egui::lerp(track.left()..=track.right(), t);
         let y = rect.center().y;
-        let bar = |from: f32, to: f32| egui::Rect::from_min_max(egui::pos2(from, y - 2.0), egui::pos2(to, y + 2.0));
-        painter.rect_filled(bar(track.left(), track.right()), 2.0, CONTROL_BG);
-        painter.rect_filled(bar(track.left(), x), 2.0, ACCENT);
+        let bar = |from: f32, to: f32| egui::Rect::from_min_max(egui::pos2(from, y - 3.0), egui::pos2(to, y + 3.0));
+        painter.rect_filled(bar(track.left(), track.right()), 3.0, Color32::from_rgb(0x50,0x50,0x58));
+        painter.rect_filled(bar(track.left(), x), 3.0, ACCENT);
 
         let active = response.hovered() || response.dragged();
         let radius = if response.dragged() { KNOB + 1.0 } else { KNOB };
@@ -569,7 +629,9 @@ fn slider(
 fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
     let size = Vec2::new(40.0, 22.0);
     let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "Enabled"));
     if response.clicked() {
+        response.request_focus();
         *on = !*on;
         response.mark_changed();
     }
@@ -638,22 +700,75 @@ fn link(ui: &mut Ui, label: &str) -> egui::Response {
 }
 
 fn tab_bar(ui: &mut Ui, tab: &mut Tab) {
-    // Center using last frame's measured width (egui lays out in one pass).
-    let id = ui.id().with("tab-bar-width");
-    let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(280.0);
     ui.horizontal(|ui| {
-        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-        let response = segmented(
-            ui,
-            tab,
-            &[(Tab::General, "General"), (Tab::Applications, "Applications"), (Tab::Updates, "Updates"), (Tab::About, "About")],
-        );
-        let measured = response.rect.width();
-        if (measured - width).abs() > 0.5 {
-            ui.data_mut(|d| d.insert_temp(id, measured));
-            ui.ctx().request_repaint();
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (value,label) in [(Tab::General,"General"),(Tab::Applications,"Applications"),(Tab::Updates,"Updates"),(Tab::About,"About")] {
+            let selected = *tab == value;
+            let text = RichText::new(label).size(12.0).color(if selected {ACCENT} else {MUTED});
+            let width = ui.painter().layout_no_wrap(label.into(),egui::FontId::proportional(12.0),TEXT).size().x + 16.0;
+            let response=ui.add_sized([width,38.0],egui::Button::new(text).frame(false).corner_radius(0));
+            if response.clicked() {*tab=value;}
+            if selected {ui.painter().hline(response.rect.x_range(),response.rect.bottom(),Stroke::new(2.0_f32,ACCENT));}
         }
     });
+}
+
+fn line(ui: &mut Ui) {
+    let (rect,_) = ui.allocate_exact_size(Vec2::new(ui.available_width(),1.0),Sense::hover());
+    ui.painter().hline(rect.x_range(),rect.center().y,Stroke::new(1.0_f32,CARD_BORDER));
+}
+
+fn disclosure(ui: &mut Ui, title: &str, summary: Option<&str>, open: &mut bool) {
+    let response=ui.add_sized([ui.available_width(),48.0],egui::Button::new("").frame(false));
+    if response.clicked() {*open = !*open;}
+    response.widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader,true,title));
+    let rect=response.rect;
+    let painter=ui.painter();
+    painter.text(egui::pos2(rect.left(),rect.center().y),egui::Align2::LEFT_CENTER,title,egui::FontId::proportional(if summary.is_some(){14.0}else{12.0}),if summary.is_some(){TEXT}else{MUTED});
+    if let Some(summary)=summary {
+        // Keep long lists in the editor; the header stays a single, quiet row.
+        let available=(rect.width()-135.0).max(40.0);
+        let galley=painter.layout(summary.to_string(),egui::FontId::proportional(12.0),MUTED,available);
+        let clip=egui::Rect::from_min_max(egui::pos2(rect.right()-available-24.0,rect.top()),egui::pos2(rect.right()-24.0,rect.bottom()));
+        let at = egui::pos2(rect.right()-galley.size().x-31.0,rect.center().y-galley.size().y/2.0);
+        if !summary.contains(" or ") {
+            let badge=egui::Rect::from_min_size(at-Vec2::new(7.0,3.0),galley.size()+Vec2::new(14.0,6.0));
+            painter.with_clip_rect(clip).rect(badge,4.0,CONTROL_BG,Stroke::new(1.0_f32,Color32::from_gray(65)),StrokeKind::Inside);
+        }
+        painter.with_clip_rect(clip).galley(at,galley,MUTED);
+    }
+    let x=rect.right()-8.0;let y=rect.center().y;
+    let direction=if *open{-1.0}else{1.0};
+    painter.line_segment([egui::pos2(x-4.0,y-2.0*direction),egui::pos2(x,y+2.0*direction)],Stroke::new(1.5_f32,MUTED));
+    painter.line_segment([egui::pos2(x,y+2.0*direction),egui::pos2(x+4.0,y-2.0*direction)],Stroke::new(1.5_f32,MUTED));
+}
+
+fn held_shortcut(ctx: &egui::Context) -> Shortcut {
+    #[cfg(windows)]
+    {
+        let _ = ctx;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+        let down=|key| unsafe {GetAsyncKeyState(key) as u16 & 0x8000 != 0};
+        let mut modifiers=Modifiers::NONE;
+        for (key,modifier) in [(0x11,Modifiers::CTRL),(0x12,Modifiers::ALT),(0x10,Modifiers::SHIFT),(0x5B,Modifiers::WIN),(0x5C,Modifiers::WIN)] {
+            if down(key) {modifiers=modifiers|modifier;}
+        }
+        let key=(0u16..=255).find(|key|crate::core::shortcut::supported_key(*key)&&down(i32::from(*key)));
+        Shortcut{modifiers,key}
+    }
+    #[cfg(not(windows))]
+    ctx.input(|i| {
+        let mut modifiers=Modifiers::NONE;
+        if i.modifiers.ctrl {modifiers=modifiers|Modifiers::CTRL;}
+        if i.modifiers.alt {modifiers=modifiers|Modifiers::ALT;}
+        if i.modifiers.shift {modifiers=modifiers|Modifiers::SHIFT;}
+        if i.modifiers.mac_cmd {modifiers=modifiers|Modifiers::WIN;}
+        let key=i.keys_down.iter().find_map(|key| {
+            let name=key.name();
+            (0u16..=255).find(|vk|crate::core::shortcut::supported_key(*vk)&&crate::core::shortcut::key_label(*vk).eq_ignore_ascii_case(name))
+        });
+        Shortcut{modifiers,key}
+    })
 }
 
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
@@ -705,13 +820,16 @@ fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// Preview-only (non-Windows): `MOOZ_PREVIEW_SHOT=/tmp/shot MOOZ_PREVIEW_TAB=about`
+/// Opt-in renderer capture (also used by Windows CI): `MOOZ_PREVIEW_SHOT=/tmp/shot MOOZ_PREVIEW_TAB=about`
 /// renders a tab, writes `<path>.rgba` plus `<path>.size`, and exits. Lets the
 /// window be checked without a Windows machine or any synthetic input.
-#[cfg(not(windows))]
 mod preview_shot {
     use super::Tab;
     use eframe::egui;
+
+    pub fn state(name: &str) -> bool {
+        std::env::var_os("MOOZ_PREVIEW_SHOT").is_some() && std::env::var("MOOZ_PREVIEW_STATE").as_deref() == Ok(name)
+    }
 
     pub struct PreviewShot {
         path: Option<String>,

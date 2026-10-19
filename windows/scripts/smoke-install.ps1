@@ -52,7 +52,7 @@ try {
     Start-Mooz
     Stop-Mooz
     New-Item (Split-Path $config) -ItemType Directory -Force | Out-Null
-    '{"sensitivity":1.7,"checkUpdates":false,"onboarded":true}' | Set-Content $config
+    '{"sensitivity":1.7,"shortcuts":[{"modifiers":4},{"modifiers":3,"key":75}],"checkUpdates":false,"onboarded":true}' | Set-Content $config
     New-Item $runKey -Force | Out-Null
     New-ItemProperty $runKey -Name Mooz -Value ('"' + "$root/current/Mooz.exe" + '"') -PropertyType String -Force | Out-Null
     # Package the same exe with a higher fixture version. Never publish this feed.
@@ -63,6 +63,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Rust update check/download/apply failed.' }
     Wait-Until { (Get-Content "$root/current/sq.version" -Raw) -match '<version>99.0.0</version>' } 'Update did not apply.'
     if ((Get-Content $config -Raw | ConvertFrom-Json).sensitivity -ne 1.7) { throw 'Update lost preferences.' }
+    $preferences = Get-Content $config -Raw | ConvertFrom-Json
+    if ($preferences.shortcuts.Count -ne 2 -or $preferences.shortcuts[1].key -ne 75) { throw 'Update lost recorded shortcuts.' }
     if (!(Get-ItemPropertyValue $runKey -Name Mooz)) { throw 'Update lost startup preference.' }
     Start-Mooz
     Stop-Mooz

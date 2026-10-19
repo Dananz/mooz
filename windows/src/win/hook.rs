@@ -149,7 +149,13 @@ impl State {
     }
 
     fn context(&self) -> Context {
-        Context { held: held_modifiers(), intercept: self.intercept, now: now_seconds() }
+        let mut held_keys = [0; 4];
+        for shortcut in &self.settings.shortcuts {
+            if let Some(key) = shortcut.key {
+                if key_down(key) { held_keys[usize::from(key / 64)] |= 1 << (key % 64); }
+            }
+        }
+        Context { held: held_modifiers(), held_keys, intercept: self.intercept, now: now_seconds() }
     }
 
     fn end_gesture(&mut self) {
@@ -160,7 +166,8 @@ impl State {
 
     fn update_intercept(&mut self) {
         let c = &self.watcher.config;
-        self.intercept = should_intercept(c.list_mode, &c.apps, self.foreground_exe.as_deref());
+        self.intercept = !self.foreground_exe.as_deref().is_some_and(|exe| exe.eq_ignore_ascii_case("Mooz.exe"))
+            && should_intercept(c.list_mode, &c.apps, self.foreground_exe.as_deref());
     }
 
     /// Pushes config values into the engine and installs or removes the hook.
@@ -169,7 +176,7 @@ impl State {
         log(&format!(
             "config: enabled={} trigger={} source={:?} sensitivity={} anchor={} method={:?} style={:?} foreground={:?}",
             self.watcher.config.enabled,
-            self.watcher.config.modifiers.label(),
+            self.watcher.config.shortcut_label(),
             self.watcher.config.input_source,
             self.watcher.config.sensitivity,
             self.watcher.config.anchor_cursor,
@@ -385,15 +392,15 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let Some(s) = guard.as_mut() else { return };
         s.last_hook_event = now_seconds();
         let ctx = s.context();
-        let settings = s.settings;
+        let settings = &s.settings;
         let was_active = s.engine.is_active();
         let mut queue = Queue { pending: &mut s.pending };
         verdict = if message == WM_MOUSEMOVE {
-            s.engine.on_move(pt, ctx, &settings, &mut queue)
+            s.engine.on_move(pt, ctx, settings, &mut queue)
         } else {
             // The high word of mouseData is the signed wheel delta.
             let delta = i32::from((info.mouseData >> 16) as u16 as i16);
-            s.engine.on_wheel(pt, delta, ctx, &settings, &mut queue)
+            s.engine.on_wheel(pt, delta, ctx, settings, &mut queue)
         };
         s.last_hook_point = if verdict == Verdict::Swallow { s.engine.anchor() } else { pt };
         if message == WM_MOUSEMOVE && (was_active || s.engine.is_active()) {

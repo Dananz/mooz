@@ -47,3 +47,11 @@ jobs:
       - name: Install, upgrade and uninstall smoke test
         shell: pwsh
         run: ./scripts/smoke-install.ps1
+      - name: Capture Windows settings
+        shell: pwsh
+        run: ./scripts/capture-settings.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Mooz-settings-windows
+          path: windows/dist/settings-shots/*.png

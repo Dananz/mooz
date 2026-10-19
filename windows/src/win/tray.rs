@@ -209,7 +209,7 @@ impl Tray {
         };
         let text = format!(
             "Hold {} and {how} to zoom. Click this icon for settings.",
-            c.modifiers.label()
+            c.shortcut_label()
         );
         let mut nid = self.data();
         nid.uFlags = NIF_INFO;

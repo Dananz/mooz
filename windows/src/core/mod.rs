@@ -7,3 +7,5 @@ pub mod gesture;
 pub mod modifiers;
 pub mod pinch;
 pub mod wheel;
+
+pub mod shortcut;

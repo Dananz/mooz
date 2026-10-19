@@ -10,6 +10,7 @@
 
 use super::config::{Config, InputSource};
 use super::modifiers::Modifiers;
+use super::shortcut::Shortcut;
 
 pub type Point = (i32, i32);
 
@@ -47,9 +48,9 @@ pub enum Verdict {
     Swallow,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GestureSettings {
-    pub required: Modifiers,
+    pub shortcuts: Vec<Shortcut>,
     pub input_source: InputSource,
     pub sensitivity: f64,
     pub anchor_cursor: bool,
@@ -58,7 +59,7 @@ pub struct GestureSettings {
 impl From<&Config> for GestureSettings {
     fn from(c: &Config) -> Self {
         Self {
-            required: c.modifiers,
+            shortcuts: c.effective_shortcuts(),
             input_source: c.input_source,
             sensitivity: c.sensitivity,
             anchor_cursor: c.anchor_cursor,
@@ -71,6 +72,7 @@ impl From<&Config> for GestureSettings {
 pub struct Context {
     /// Modifiers held right now.
     pub held: Modifiers,
+    pub held_keys: [u64; 4],
     /// Blocklist/allowlist verdict for the foreground app.
     pub intercept: bool,
     /// Monotonic seconds.
@@ -138,7 +140,7 @@ impl Engine {
     ) -> Verdict {
         let previous = self.cursor.unwrap_or(pt);
 
-        if !s.required.satisfied_by(ctx.held) || !ctx.intercept {
+        if !s.shortcuts.iter().any(|shortcut| shortcut.satisfied_by(ctx.held, &ctx.held_keys)) || !ctx.intercept {
             self.end(ctx.now, emitter);
             self.cursor = Some(pt);
             return Verdict::Pass;
@@ -189,7 +191,7 @@ impl Engine {
         s: &GestureSettings,
         emitter: &mut dyn Emitter,
     ) -> Verdict {
-        if !s.required.satisfied_by(ctx.held) || !ctx.intercept {
+        if !s.shortcuts.iter().any(|shortcut| shortcut.satisfied_by(ctx.held, &ctx.held_keys)) || !ctx.intercept {
             self.end(ctx.now, emitter);
             return Verdict::Pass;
         }
@@ -214,7 +216,7 @@ impl Engine {
         if !self.active {
             return;
         }
-        if !s.required.satisfied_by(ctx.held) || ctx.now - self.last_input_time > STALL_TIMEOUT {
+        if !s.shortcuts.iter().any(|shortcut| shortcut.satisfied_by(ctx.held, &ctx.held_keys)) || ctx.now - self.last_input_time > STALL_TIMEOUT {
             self.end(ctx.now, emitter);
         }
     }
@@ -242,7 +244,7 @@ mod tests {
 
     fn drag() -> GestureSettings {
         GestureSettings {
-            required: Modifiers::SHIFT,
+            shortcuts: vec![Shortcut {modifiers: Modifiers::SHIFT, key: None}],
             input_source: InputSource::MouseDrag,
             sensitivity: 0.5,
             anchor_cursor: true,
@@ -250,11 +252,30 @@ mod tests {
     }
 
     fn held(now: f64) -> Context {
-        Context { held: Modifiers::SHIFT, intercept: true, now }
+        Context { held_keys: [0; 4], held: Modifiers::SHIFT, intercept: true, now }
     }
 
     fn released(now: f64) -> Context {
-        Context { held: Modifiers::NONE, intercept: true, now }
+        Context { held_keys: [0; 4], held: Modifiers::NONE, intercept: true, now }
+    }
+
+    #[test]
+    fn either_shortcut_activates_drag_and_wheel_and_key_release_ends_it() {
+        let shortcuts=vec![Shortcut{modifiers:Modifiers::SHIFT,key:None},Shortcut{modifiers:Modifiers::CTRL,key:Some(0x4B)}];
+        for source in [InputSource::MouseDrag,InputSource::ScrollWheel] {
+            let settings=GestureSettings{shortcuts:shortcuts.clone(),input_source:source,..drag()};
+            let mut e=Engine::new();let mut r=Recorder::default();
+            let mut ctx=Context{held:Modifiers::CTRL,..released(0.0)};
+            assert_eq!(e.on_move((0,10),ctx,&settings,&mut r),Verdict::Pass);
+            assert_eq!(e.on_wheel((0,10),120,ctx,&settings,&mut r),Verdict::Pass);
+            ctx.held_keys[1]=1 << (0x4B % 64);
+            let verdict=if source==InputSource::MouseDrag {e.on_move((0,20),ctx,&settings,&mut r)}else{e.on_wheel((0,20),120,ctx,&settings,&mut r)};
+            assert_eq!(verdict,Verdict::Swallow);
+            assert!(e.is_active());
+            ctx.held_keys=[0;4];ctx.now=0.01;e.tick(ctx,&settings,&mut r);
+            assert!(!e.is_active());
+            assert_eq!(e.on_move((0,30),held(0.02),&settings,&mut r),Verdict::Swallow);
+        }
     }
 
     #[test]
