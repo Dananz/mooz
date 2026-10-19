@@ -153,3 +153,16 @@ Ctrl + wheel path ran and zoomed. The virtual touchpad pinch (now the
 default) and cursor pinning are not confirmed yet; the debug log records both.
 On Windows 10 (22H2, three monitors) the touchscreen pinch zoomed Chrome
 smoothly at the cursor.
+
+## Installer and updates
+
+Use **Mooz-win-Setup.exe** from a Windows release for a per-user installation,
+Start menu entry, uninstall support, and in-app updates. Open **Settings > Updates**
+to check, download, and restart. Background checks are enabled by default and can
+be disabled; downloads and restarts always need your click. Bare copies of
+Mooz.exe cannot update in place.
+
+Windows PR builds include an unsigned test installer and update packages as CI
+artifacts. Trusted signing credentials must be configured before a public release.
+See [RELEASING.md](RELEASING.md) for packaging, signing, the GitHub update feed,
+release publication, and the install/upgrade/uninstall smoke test.

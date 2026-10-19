@@ -78,6 +78,8 @@ pub struct Config {
     pub onboarded: bool,
     /// Hidden: write a diagnostic log (Windows: %TEMP%\mooz-debug.log).
     pub debug: bool,
+    /// Background update checks only. Downloads and restarts require a click.
+    pub check_updates: bool,
 }
 
 impl Default for Config {
@@ -94,6 +96,7 @@ impl Default for Config {
             apps: Vec::new(),
             onboarded: false,
             debug: false,
+            check_updates: true,
         }
     }
 }
@@ -240,8 +243,7 @@ mod tests {
     fn save_round_trips_and_watcher_sees_external_change() {
         let dir = std::env::temp_dir().join(format!("mooz-test-rt-{}", std::process::id()));
         let path = dir.join("config.json");
-        let mut c = Config::default();
-        c.sensitivity = 1.7;
+        let mut c = Config { sensitivity: 1.7, ..Config::default() };
         c.apps.push(AppEntry { exe: "chrome.exe".into(), name: "Chrome".into() });
         c.save(&path).unwrap();
         assert_eq!(Config::load(&path), c);

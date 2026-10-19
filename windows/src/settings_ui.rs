@@ -36,6 +36,7 @@ const PAGE_WIDTH: f32 = 500.0;
 enum Tab {
     General,
     Applications,
+    Updates,
     About,
 }
 
@@ -62,6 +63,8 @@ struct SettingsApp {
     icon: TextureHandle,
     save_error: Option<String>,
     pinch_available: bool,
+    updater: crate::updates::Updater,
+    checked_updates: bool,
     #[cfg(not(windows))]
     preview: preview_shot::PreviewShot,
 }
@@ -84,6 +87,8 @@ impl SettingsApp {
             icon,
             save_error: None,
             pinch_available: platform::native_pinch_available(),
+            updater: crate::updates::Updater::new(),
+            checked_updates: false,
             #[cfg(not(windows))]
             preview: preview_shot::PreviewShot::from_env(),
         }
@@ -98,6 +103,13 @@ impl eframe::App for SettingsApp {
         }
         // The tray menu can flip "Enabled" while this window is open.
         self.watcher.refresh();
+        self.updater.poll();
+        if !self.checked_updates && self.updater.status != crate::updates::Status::Unavailable {
+            self.checked_updates = true;
+            if self.watcher.config.check_updates {
+                self.updater.check();
+            }
+        }
         ctx.request_repaint_after(Duration::from_secs(1));
         let before = self.watcher.config.clone();
 
@@ -111,6 +123,7 @@ impl eframe::App for SettingsApp {
                     match self.tab {
                         Tab::General => self.general(ui),
                         Tab::Applications => self.applications(ui),
+                        Tab::Updates => self.updates(ui),
                         Tab::About => self.about(ui),
                     }
                     if let Some(err) = &self.save_error {
@@ -133,6 +146,50 @@ impl eframe::App for SettingsApp {
 // MARK: - Tabs
 
 impl SettingsApp {
+    fn updates(&mut self, ui: &mut Ui) {
+        use crate::updates::Status;
+        ui.heading("Updates");
+        ui.label(RichText::new(format!("Mooz {VERSION} for Windows")).color(MUTED));
+        ui.add_space(18.0);
+        card(ui, |ui| {
+            row(ui, "Check automatically", Some("Checks in the background. You choose when to download and restart."), |ui| {
+                toggle(ui, &mut self.watcher.config.check_updates);
+            });
+        });
+        ui.add_space(18.0);
+        let status = self.updater.status.clone();
+        let message = match &status {
+            Status::Unavailable => "Install Mooz using Mooz-win-Setup.exe to receive updates. Standalone copies cannot update in place.".into(),
+            Status::Idle => "Check for the latest stable version of Mooz.".into(),
+            Status::Checking => "Checking for updates…".into(),
+            Status::Current => "Mooz is up to date.".into(),
+            Status::Available(v) => format!("Mooz {v} is available."),
+            Status::Downloading => "Downloading and verifying your update…".into(),
+            Status::Ready(v) => format!("Mooz {v} is ready. Restart to install it."),
+            Status::Installing => "Closing Mooz and installing the update…".into(),
+            Status::Error(e) => format!("Couldn't update Mooz: {e}"),
+        };
+        ui.label(RichText::new(message).color(TEXT));
+        ui.add_space(12.0);
+        match status {
+            Status::Available(_) => {
+                if chip(ui, "Download update", true).clicked() { self.updater.download(); }
+            }
+            Status::Ready(_) => {
+                if chip(ui, "Restart and install", true).clicked() { self.updater.install(); }
+            }
+            Status::Unavailable => {
+                if link(ui, "Get the installer").clicked() { platform::open_url(crate::updates::RELEASES); }
+            }
+            _ if !status.busy() => {
+                if chip(ui, "Check for updates", true).clicked() { self.updater.check(); }
+            }
+            _ => { ui.spinner(); }
+        }
+        ui.add_space(18.0);
+        if link(ui, "Release notes on GitHub").clicked() { platform::open_url(crate::updates::RELEASES); }
+    }
+
     fn general(&mut self, ui: &mut Ui) {
         let c = &mut self.watcher.config;
 
@@ -589,7 +646,7 @@ fn tab_bar(ui: &mut Ui, tab: &mut Tab) {
         let response = segmented(
             ui,
             tab,
-            &[(Tab::General, "General"), (Tab::Applications, "Applications"), (Tab::About, "About")],
+            &[(Tab::General, "General"), (Tab::Applications, "Applications"), (Tab::Updates, "Updates"), (Tab::About, "About")],
         );
         let measured = response.rect.width();
         if (measured - width).abs() > 0.5 {
@@ -666,6 +723,7 @@ mod preview_shot {
         pub fn from_env() -> Self {
             let tab = match std::env::var("MOOZ_PREVIEW_TAB").as_deref() {
                 Ok("applications") => Tab::Applications,
+                Ok("updates") => Tab::Updates,
                 Ok("about") => Tab::About,
                 _ => Tab::General,
             };

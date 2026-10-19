@@ -11,10 +11,24 @@
 mod core;
 mod platform;
 mod settings_ui;
+mod updates;
 #[cfg(windows)]
 mod win;
 
 fn main() {
+    #[cfg(windows)]
+    velopack::VelopackApp::build()
+        .set_auto_apply_on_startup(false)
+        .on_first_run(|_| win::open_settings())
+        .on_after_update_fast_callback(|_| {
+            if win::autostart::is_enabled() {
+                let _ = win::autostart::set(true);
+            }
+        })
+        .on_before_uninstall_fast_callback(|_| {
+            let _ = win::autostart::set(false);
+        })
+        .run();
     let settings = std::env::args().any(|a| a == "--settings");
     #[cfg(windows)]
     if !settings {

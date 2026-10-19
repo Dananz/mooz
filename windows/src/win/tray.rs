@@ -7,6 +7,7 @@ use super::util::{copy_wide, wide, wide_ptr_to_string};
 use crate::core::config::{config_path, ConfigWatcher, InputSource};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
@@ -47,6 +48,9 @@ struct Tray {
     watcher: ConfigWatcher,
     icon: HICON,
     light_taskbar: bool,
+    updater: crate::updates::Updater,
+    next_update_check: Instant,
+    notified_version: Option<String>,
 }
 
 thread_local! {
@@ -95,6 +99,9 @@ pub fn run() {
         watcher: ConfigWatcher::new(config_path()),
         icon: std::ptr::null_mut(),
         light_taskbar: light_taskbar(),
+        updater: crate::updates::Updater::new(),
+        next_update_check: Instant::now() + Duration::from_secs(30),
+        notified_version: None,
     };
     tray.reload_icon();
     tray.add();
@@ -121,6 +128,25 @@ pub fn run() {
 }
 
 impl Tray {
+    fn check_updates(&mut self) {
+        self.updater.poll();
+        if self.watcher.config.check_updates && Instant::now() >= self.next_update_check {
+            self.next_update_check = Instant::now() + Duration::from_secs(24 * 60 * 60);
+            self.updater.check();
+        }
+        if let crate::updates::Status::Available(version) = &self.updater.status {
+            if self.notified_version.as_ref() != Some(version) && self.watcher.config.check_updates {
+                let mut nid = self.data();
+                nid.uFlags = NIF_INFO;
+                nid.dwInfoFlags = NIIF_NONE;
+                copy_wide(&mut nid.szInfoTitle, "Mooz update available");
+                copy_wide(&mut nid.szInfo, &format!("Mooz {version} is available. Open Settings, then Updates to install it."));
+                unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
+                self.notified_version = Some(version.clone());
+            }
+        }
+    }
+
     fn data(&self) -> NOTIFYICONDATAW {
         let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
@@ -298,6 +324,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     t.reload_icon();
                     t.update();
                 }
+                t.check_updates();
             });
             0
         }

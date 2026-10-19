@@ -18,6 +18,7 @@ serde_json = "1"
 eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
 
 [target.'cfg(windows)'.dependencies]
+velopack = "=1.2.161"
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",

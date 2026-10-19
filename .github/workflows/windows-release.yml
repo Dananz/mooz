@@ -1,0 +1,68 @@
+# Release VERSION must already be committed. Preview builds are produced by windows.yml.
+name: windows-release
+on:
+  push:
+    tags: ['windows-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release ref
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content ../VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid VERSION' }
+          $tag = "windows-v$version"
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne $tag) { throw 'Tag and VERSION disagree.' }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet tool install --global vpk --version 1.2.161
+      - run: cargo test --locked
+      - run: cargo clippy --locked --release --all-targets -- -D warnings
+      - run: cargo build --locked --release
+      - name: Sign and package
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: ./scripts/package.ps1 -RequireSignature
+      - name: Verify installation and upgrade
+        shell: pwsh
+        run: ./scripts/smoke-install.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mooz-signed-windows-x64
+          path: windows/dist/releases/*
+      - name: Stage release for review
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Draft assets stay invisible to installed clients until published.
+          gh release create $env:RELEASE_TAG --target $env:RELEASE_COMMIT --draft --title "Mooz $env:RELEASE_TAG for Windows" --notes-file RELEASE-NOTES.md ./dist/releases/*
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
