@@ -1,0 +1,1 @@
+AdapterInfo { name: "Microsoft Basic Render Driver", vendor: 5140, device: 140, device_type: Cpu, driver: "10.0.26100.33438", driver_info: "", backend: Dx12 }
