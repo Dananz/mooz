@@ -14,7 +14,10 @@ using System;
 using System.Runtime.InteropServices;
 public static class MoozSmokeWindow {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern IntPtr FindWindow(string className, string windowName);
+    private static extern IntPtr FindWindow(string className, string windowName);
+    // Keep the null title inside C#: PowerShell can coerce $null to "",
+    // which would search for an empty title instead of accepting any title.
+    public static IntPtr FindTray() { return FindWindow("MoozTray", null); }
 }
 '@
 function Wait-Until([scriptblock]$Condition, [string]$Failure) {
@@ -34,7 +37,7 @@ function Start-Mooz {
         throw "Mooz exited during startup: $($app.ExitCode) (0x$($app.ExitCode.ToString('X8')))"
     }
     Write-Host "Mooz session $($app.SessionId)"
-    Wait-Until { [MoozSmokeWindow]::FindWindow('MoozTray', $null) -ne [IntPtr]::Zero } 'Mooz tray did not become ready.'
+    Wait-Until { [MoozSmokeWindow]::FindTray() -ne [IntPtr]::Zero } 'Mooz tray did not become ready.'
 }
 if (!$env:GITHUB_ACTIONS) { throw 'This smoke test runs only on disposable GitHub runners.' }
 if (Test-Path $root) { throw 'Refusing to replace an existing installation.' }
