@@ -24,6 +24,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: windows
+          cache-on-failure: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'

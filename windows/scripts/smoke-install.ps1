@@ -22,6 +22,8 @@ try {
     $process = Start-Process -FilePath $setup -ArgumentList '--silent' -PassThru -Wait
     if ($process.ExitCode -ne 0) { throw "Install failed: $($process.ExitCode)" }
     Wait-Until { Test-Path "$root/current/Mooz.exe" } 'Installed executable missing.'
+    # --silent intentionally suppresses the installer's normal first launch.
+    Start-Process -FilePath "$root/current/Mooz.exe" | Out-Null
     Wait-Until { @(Get-Process Mooz -ErrorAction SilentlyContinue).Count -gt 0 } 'Mooz did not launch.'
     Stop-Mooz
     New-Item (Split-Path $config) -ItemType Directory -Force | Out-Null

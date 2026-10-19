@@ -41,9 +41,10 @@ try {
     if ($RequireSignature -and (Get-AuthenticodeSignature $installer).Status -ne 'Valid') {
         throw 'Installer Authenticode signature is not valid.'
     }
-    Get-ChildItem $OutputDir -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
+    $checksums = Get-ChildItem $OutputDir -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
         "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-    } | Set-Content (Join-Path $OutputDir 'SHA256SUMS.txt') -Encoding ascii
+    }
+    [IO.File]::WriteAllText((Join-Path $OutputDir 'SHA256SUMS.txt'), (($checksums -join "`n") + "`n"), [Text.Encoding]::ASCII)
 } finally {
     if ($certificate) { Remove-Item "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue }
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
