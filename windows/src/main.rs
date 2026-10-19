@@ -46,6 +46,13 @@ fn main() {
             "The Settings window couldn't open ({e}).\n\nMooz keeps running from the tray. You can edit the settings file directly:\n{}",
             core::config::config_path().display()
         );
+        // Automated renderer captures must report an initialization failure rather
+        // than waiting forever in a modal error dialog on the CI desktop.
+        if let Some(path) = std::env::var_os("MOOZ_PREVIEW_SHOT") {
+            let _ = std::fs::write(format!("{}.error.txt", path.to_string_lossy()), &message);
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
         #[cfg(windows)]
         win::show_error(&message);
         #[cfg(not(windows))]

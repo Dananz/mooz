@@ -54,4 +54,4 @@ jobs:
         if: always()
         with:
           name: Mooz-settings-windows
-          path: windows/dist/settings-shots/*.png
+          path: windows/dist/settings-shots/*

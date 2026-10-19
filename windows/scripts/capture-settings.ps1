@@ -12,9 +12,17 @@ try {
         $env:MOOZ_PREVIEW_SHOT = $prefix
         $env:MOOZ_PREVIEW_TAB = if ($state -in @('shortcuts','behavior')) { 'general' } else { $state }
         $env:MOOZ_PREVIEW_STATE = $state
-        $app = Start-Process "$PSScriptRoot/../target/release/Mooz.exe" -ArgumentList '--settings' -PassThru
-        if (!$app.WaitForExit(30000)) { $app.Kill(); throw "Settings capture timed out: $state" }
-        if ($app.ExitCode -ne 0 -or !(Test-Path "$prefix.rgba")) { throw "Settings capture failed: $state ($($app.ExitCode))" }
+        $app = Start-Process "$PSScriptRoot/../target/release/Mooz.exe" -ArgumentList '--settings' -PassThru -RedirectStandardError "$prefix.stderr.log" -RedirectStandardOutput "$prefix.stdout.log"
+        if (!$app.WaitForExit(30000)) {
+            Get-Process -Id $app.Id | Format-List Id,MainWindowTitle,Responding
+            $app.Kill()
+            Get-Content "$prefix.stderr.log" -ErrorAction SilentlyContinue
+            throw "Settings capture timed out: $state"
+        }
+        if ($app.ExitCode -ne 0 -or !(Test-Path "$prefix.rgba")) {
+            Get-Content "$prefix.error.txt", "$prefix.stderr.log" -ErrorAction SilentlyContinue
+            throw "Settings capture failed: $state ($($app.ExitCode))"
+        }
         $size = (Get-Content "$prefix.size" -Raw).Trim().Split(' ')
         $width = [int]$size[0]; $height = [int]$size[1]
         $pixels = [IO.File]::ReadAllBytes("$prefix.rgba")
