@@ -141,7 +141,7 @@ impl eframe::App for SettingsApp {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     Frame::new().inner_margin(Margin::same(28)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.spacing_mut().item_spacing.y = if self.tab == Tab::General {0.0} else {6.0};
                     match self.tab {
                         Tab::General => self.general(ui),
                         Tab::Applications => self.applications(ui),
@@ -558,6 +558,7 @@ fn row(ui: &mut Ui, title: &str, subtitle: Option<&str>, control: impl FnOnce(&m
         let text_width = (ui.available_width() - 190.0).max(160.0);
         ui.allocate_ui_with_layout(Vec2::new(text_width, 0.0), Layout::top_down(Align::Min), |ui| {
             ui.set_max_width(text_width);
+            ui.spacing_mut().item_spacing.y = 6.0;
             ui.label(RichText::new(title).color(TEXT));
             if let Some(subtitle) = subtitle {
                 ui.add(egui::Label::new(RichText::new(subtitle).small().color(MUTED)).wrap());
