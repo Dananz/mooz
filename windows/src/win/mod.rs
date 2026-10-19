@@ -73,3 +73,29 @@ pub fn show_error(text: &str) {
     let (text, title) = (wide(text), wide("Mooz"));
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONWARNING) };
 }
+
+/// Wait for the tray process to release all input hooks before replacing it.
+pub fn stop_tray_for_update() -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, SYNCHRONIZATION_SYNCHRONIZE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, PostMessageW, WM_CLOSE};
+    let class = wide("MoozTray");
+    let hwnd = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };
+    if hwnd.is_null() {
+        return Ok(());
+    }
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    let process = unsafe { OpenProcess(SYNCHRONIZATION_SYNCHRONIZE, 0, pid) };
+    if process.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let posted = unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+    let stopped = posted != 0 && unsafe { WaitForSingleObject(process, 5000) } == WAIT_OBJECT_0;
+    unsafe { CloseHandle(process) };
+    if stopped {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("Mooz could not close its tray process. Quit Mooz from the tray, then try again."))
+    }
+}

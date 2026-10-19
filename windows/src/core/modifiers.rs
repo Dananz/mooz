@@ -35,10 +35,6 @@ impl Modifiers {
         Self(self.0 & Self::ALL.0)
     }
 
-    pub fn toggled(self, other: Self) -> Self {
-        Self(self.0 ^ other.0).masked()
-    }
-
     pub fn names(self) -> Vec<&'static str> {
         Self::ORDERED
             .iter()

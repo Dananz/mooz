@@ -4,15 +4,16 @@ name: windows
 
 on:
   pull_request:
-    paths: ["windows/**", "VERSION", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "VERSION", ".github/workflows/windows*.yml"]
   push:
     branches: [main]
-    paths: ["windows/**", "VERSION", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "VERSION", ".github/workflows/windows*.yml"]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: windows
@@ -24,19 +25,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: windows
+          cache-on-failure: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install packaging tool
+        run: dotnet tool install --global vpk --version 1.2.161
       - name: Test
-        run: cargo test
+        run: cargo test --locked
       - name: Clippy
-        run: cargo clippy --release -- -D warnings
+        run: cargo clippy --locked --release --all-targets -- -D warnings
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Package
         shell: pwsh
-        run: |
-          $version = (Get-Content ../VERSION -Raw).Trim()
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Force -Path target/release/Mooz.exe -DestinationPath "dist/Mooz-$version-windows-x64.zip"
+        run: ./scripts/package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: Mooz-windows-x64
-          path: windows/dist/*.zip
+          path: windows/dist/releases/*
+      - name: Install, upgrade and uninstall smoke test
+        shell: pwsh
+        run: ./scripts/smoke-install.ps1
+      - name: Capture Windows settings
+        shell: pwsh
+        run: ./scripts/capture-settings.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Mooz-settings-windows
+          path: windows/dist/settings-shots/*

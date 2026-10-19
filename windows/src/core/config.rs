@@ -4,6 +4,7 @@
 //! Missing keys fall back to defaults, so old files keep working.
 
 use super::modifiers::Modifiers;
+use super::shortcut::Shortcut;
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -67,6 +68,8 @@ pub struct AppEntry {
 pub struct Config {
     pub enabled: bool,
     pub modifiers: Modifiers,
+    /// Empty in legacy files: use the original modifiers field.
+    pub shortcuts: Vec<Shortcut>,
     pub input_source: InputSource,
     pub sensitivity: f64,
     pub anchor_cursor: bool,
@@ -78,6 +81,8 @@ pub struct Config {
     pub onboarded: bool,
     /// Hidden: write a diagnostic log (Windows: %TEMP%\mooz-debug.log).
     pub debug: bool,
+    /// Background update checks only. Downloads and restarts require a click.
+    pub check_updates: bool,
 }
 
 impl Default for Config {
@@ -85,6 +90,7 @@ impl Default for Config {
         Self {
             enabled: true,
             modifiers: Modifiers::SHIFT,
+            shortcuts: Vec::new(),
             input_source: InputSource::MouseDrag,
             sensitivity: SENSITIVITY_DEFAULT,
             anchor_cursor: true,
@@ -94,6 +100,7 @@ impl Default for Config {
             apps: Vec::new(),
             onboarded: false,
             debug: false,
+            check_updates: true,
         }
     }
 }
@@ -102,12 +109,34 @@ impl Config {
     /// Clamps values a hand-edited file could put out of range.
     pub fn sanitized(mut self) -> Self {
         self.modifiers = self.modifiers.masked();
+        let mut unique = Vec::new();
+        for mut shortcut in self.shortcuts {
+            shortcut.modifiers = shortcut.modifiers.masked();
+            if shortcut.valid() && !unique.contains(&shortcut) { unique.push(shortcut); }
+        }
+        self.shortcuts = unique;
         self.sensitivity = if self.sensitivity.is_finite() {
             self.sensitivity.clamp(SENSITIVITY_MIN, SENSITIVITY_MAX)
         } else {
             SENSITIVITY_DEFAULT
         };
         self
+    }
+
+    pub fn effective_shortcuts(&self) -> Vec<Shortcut> {
+        if self.shortcuts.is_empty() { vec![Shortcut { modifiers: self.modifiers, key: None }] }
+        else { self.shortcuts.clone() }
+    }
+
+    pub fn set_shortcuts(&mut self, shortcuts: Vec<Shortcut>) {
+        if let Some(first) = shortcuts.first() {
+            self.modifiers = first.modifiers;
+            self.shortcuts = shortcuts;
+        }
+    }
+
+    pub fn shortcut_label(&self) -> String {
+        self.effective_shortcuts().iter().map(|s| s.label()).collect::<Vec<_>>().join(" or ")
     }
 
     pub fn from_json(text: &str) -> Option<Self> {
@@ -227,6 +256,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_shortcut_migrates_without_losing_modifiers() {
+        let c=Config::from_json(r#"{"modifiers":3}"#).unwrap();
+        assert_eq!(c.effective_shortcuts(),vec![Shortcut{modifiers:Modifiers::CTRL|Modifiers::ALT,key:None}]);
+        let mut c=c;
+        let shortcuts=vec![Shortcut{modifiers:Modifiers::CTRL,key:Some(0x4B)},Shortcut{modifiers:Modifiers::SHIFT,key:None}];
+        c.set_shortcuts(shortcuts.clone());
+        assert_eq!(c.modifiers,Modifiers::CTRL);
+        let json=serde_json::to_string(&c).unwrap();
+        assert_eq!(Config::from_json(&json).unwrap().effective_shortcuts(),shortcuts);
+    }
+
+    #[test]
+    fn invalid_and_duplicate_shortcuts_are_removed() {
+        let c=Config::from_json(r#"{"modifiers":4,"shortcuts":[{"modifiers":0},{"modifiers":255,"key":999},{"modifiers":4},{"modifiers":4}]}"#).unwrap();
+        assert_eq!(c.effective_shortcuts(),vec![Shortcut{modifiers:Modifiers::SHIFT,key:None}]);
+        assert_eq!(Config::from_json(r#"{"shortcuts":[]}"#).unwrap().shortcut_label(),"Shift");
+    }
+
+    #[test]
     fn invalid_json_loads_defaults() {
         let dir = std::env::temp_dir().join(format!("mooz-test-{}", std::process::id()));
         let path = dir.join("bad.json");
@@ -240,8 +288,7 @@ mod tests {
     fn save_round_trips_and_watcher_sees_external_change() {
         let dir = std::env::temp_dir().join(format!("mooz-test-rt-{}", std::process::id()));
         let path = dir.join("config.json");
-        let mut c = Config::default();
-        c.sensitivity = 1.7;
+        let mut c = Config { sensitivity: 1.7, ..Config::default() };
         c.apps.push(AppEntry { exe: "chrome.exe".into(), name: "Chrome".into() });
         c.save(&path).unwrap();
         assert_eq!(Config::load(&path), c);

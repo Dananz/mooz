@@ -153,3 +153,26 @@ Ctrl + wheel path ran and zoomed. The virtual touchpad pinch (now the
 default) and cursor pinning are not confirmed yet; the debug log records both.
 On Windows 10 (22H2, three monitors) the touchscreen pinch zoomed Chrome
 smoothly at the cursor.
+
+## Installer and updates
+
+Use **Mooz-win-Setup.exe** from a Windows release for a per-user installation,
+Start menu entry, uninstall support, and in-app updates. Open **Settings > Updates**
+to check, download, and restart. Background checks are enabled by default and can
+be disabled; downloads and restarts always need your click. Bare copies of
+Mooz.exe cannot update in place.
+
+Windows PR builds include an unsigned test installer and update packages as CI
+artifacts. Trusted signing credentials must be configured before a public release.
+See [RELEASING.md](RELEASING.md) for packaging, signing, the GitHub update feed,
+release publication, and the install/upgrade/uninstall smoke test.
+
+### Essentials settings
+
+The settings window keeps mouse zoom, shortcut editing, input source and sensitivity in one flat view. Expand **Behavior & startup** for anchoring, zoom method, wheel style and Windows startup. Changes save immediately.
+
+**Edit shortcuts** records one or more alternative hold-to-zoom combinations. Click **Add shortcut** (or an existing shortcut), release any keys already held, then press and release the new combination. Modifier-only shortcuts are supported; a combination may also include one ordinary key. Escape, Tab, changing tabs or leaving the window cancels recording. Duplicates are rejected and the final shortcut cannot be removed. Existing `modifiers` configs continue to work; new `shortcuts` entries persist separately and the gesture engine accepts any configured combination. Mooz does not intercept gestures inside its own settings window.
+
+Windows CI captures the actual native settings renderer in the `Mooz-settings-windows` artifact, alongside the unsigned installer artifact. The installer upgrade smoke test preserves recorded shortcuts as well as sensitivity and startup registration.
+
+The Windows settings renderer uses wgpu's DirectX 12 backend, including Windows' software adapter when no hardware adapter is available. It does not require an OpenGL graphics driver. macOS development previews retain the existing OpenGL renderer. Capture artifacts record the selected Windows adapter alongside the screenshots.

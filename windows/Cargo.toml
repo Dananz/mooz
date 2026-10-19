@@ -15,9 +15,15 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts"] }
+
+[target.'cfg(not(windows))'.dependencies]
+eframe = { version = "0.33", default-features = false, features = ["glow"] }
 
 [target.'cfg(windows)'.dependencies]
+eframe = { version = "0.33", default-features = false, features = ["wgpu"] }
+wgpu = { version = "27.0.1", default-features = false, features = ["dx12"] }
+velopack = "=1.2.161"
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
