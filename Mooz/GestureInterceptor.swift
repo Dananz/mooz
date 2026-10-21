@@ -34,18 +34,17 @@ enum GestureInterceptorError: Error {
 }
 
 final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
-    /// The modifier bits we recognize. The required combo is matched exactly
-    /// against these, so e.g. ⇧⌘ requires both Shift and Command and nothing
-    /// else, never just Shift.
-    static let trackedModifierMask: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
-
     enum InputSource: String, CaseIterable {
         case mouseDrag, scrollWheel
     }
 
+    /// Stamped into `eventSourceUserData` of the key/button presses Mooz
+    /// replays, so the tap lets its own replays through untouched.
+    static let replayMarker: Int64 = 0x4D6F_6F7A // "Mooz"
+
     private let emitter: any MagnificationEmitting
     private let shouldIntercept: () -> Bool
-    private let getRequiredModifiers: () -> CGEventFlags
+    private let getShortcut: () -> Shortcut
     private let getInputSource: () -> InputSource
     private let getSensitivity: () -> Double
     private let getAnchorCursor: () -> Bool
@@ -54,16 +53,22 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     // recorders/fakes so the full event flow runs without a real event tap.
     private let warpCursor: (CGPoint) -> Void
     private let applySuppressionInterval: (CFTimeInterval) -> Void
-    private let physicalModifierFlags: () -> CGEventFlags
+    private let isPhysicallyHeld: (Shortcut) -> Bool
+    private let postEvent: (CGEvent) -> Void
     private let now: () -> TimeInterval
 
-    /// True while every configured modifier is held. Extra modifiers are
-    /// allowed (subset match), so the gesture keeps firing as long as the combo
-    /// is down even if another key is brushed — exact-match would drop it.
-    private func modifiersMatch(_ flags: CGEventFlags) -> Bool {
-        let required = getRequiredModifiers().intersection(Self.trackedModifierMask)
-        guard !required.isEmpty else { return false }
-        return flags.contains(required)
+    /// Shortcut keys/buttons currently down, as seen by this tap.
+    private var heldInputs: Set<ShortcutInput> = []
+    /// Shortcut presses held back from apps until we know whether they zoom:
+    /// replayed on release (or when another key is typed), dropped on zoom.
+    private var pendingPresses: [(input: ShortcutInput, event: CGEvent)] = []
+    /// Presses that zoomed: their repeats and release are swallowed too.
+    private var consumedInputs: Set<ShortcutInput> = []
+
+    /// Recomputes `modifierHeld` (the whole shortcut, not just modifiers) from
+    /// the event's modifier flags and the keys/buttons this tap saw go down.
+    private func refreshHeld(flags: CGEventFlags) {
+        modifierHeld = getShortcut().isSatisfied(flags: flags, held: heldInputs)
     }
 
     private var eventTap: CFMachPort?
@@ -147,8 +152,8 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         // physically held → end NOW, even while moves keep arriving. The old
         // stillness-only check never fired while the mouse was moving, which
         // left the cursor permanently pinned when session state got stuck.
-        if gestureBeganWithPhysicalModifier, !modifiersMatch(physicalModifierFlags()) {
-            diagLog("WATCHDOG force-end (modifier physically released)")
+        if gestureBeganWithPhysicalModifier, !isPhysicallyHeld(getShortcut()) {
+            diagLog("WATCHDOG force-end (shortcut physically released)")
             physicalForceEndUptime = now()
             modifierHeld = false
             emitter.emit(magnification: 0, phase: .ended)
@@ -173,7 +178,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     /// event while the modifier is held. Shared by drag and scroll paths.
     private func beginGestureIfNeeded(at location: CGPoint) {
         guard !gestureActive else { return }
-        let physicallyHeld = modifiersMatch(physicalModifierFlags())
+        let physicallyHeld = isPhysicallyHeld(getShortcut())
         // After a physical-release force-end, event flags saying "still held"
         // are exactly the lie that wedged the cursor. Demand physical truth to
         // re-arm until the cooldown passes.
@@ -189,7 +194,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     init(
         emitter: any MagnificationEmitting,
         shouldIntercept: @escaping () -> Bool,
-        getRequiredModifiers: @escaping () -> CGEventFlags,
+        getShortcut: @escaping () -> Shortcut,
         getInputSource: @escaping () -> InputSource,
         getSensitivity: @escaping () -> Double,
         getAnchorCursor: @escaping () -> Bool,
@@ -198,22 +203,33 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
             src.localEventsSuppressionInterval = interval
         },
-        // HID hardware modifier state: authoritative even when session-level
+        // HID hardware state: authoritative even when session-level
         // bookkeeping (event flags) is stale or our tap dropped the key-up.
-        physicalModifierFlags: @escaping () -> CGEventFlags = {
-            CGEventSource.flagsState(.hidSystemState)
+        isPhysicallyHeld: @escaping (Shortcut) -> Bool = { shortcut in
+            let held = shortcut.inputs.filter { input in
+                switch input {
+                case .key(let code):
+                    return CGEventSource.keyState(.hidSystemState, key: code)
+                case .button(let button):
+                    guard let button = CGMouseButton(rawValue: UInt32(button)) else { return false }
+                    return CGEventSource.buttonState(.hidSystemState, button: button)
+                }
+            }
+            return shortcut.isSatisfied(flags: CGEventSource.flagsState(.hidSystemState), held: held)
         },
+        postEvent: @escaping (CGEvent) -> Void = { $0.post(tap: .cgSessionEventTap) },
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.emitter = emitter
         self.shouldIntercept = shouldIntercept
-        self.getRequiredModifiers = getRequiredModifiers
+        self.getShortcut = getShortcut
         self.getInputSource = getInputSource
         self.getSensitivity = getSensitivity
         self.getAnchorCursor = getAnchorCursor
         self.warpCursor = warpCursor
         self.applySuppressionInterval = applySuppressionInterval
-        self.physicalModifierFlags = physicalModifierFlags
+        self.isPhysicallyHeld = isPhysicallyHeld
+        self.postEvent = postEvent
         self.now = now
     }
 
@@ -237,8 +253,14 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             (1 << CGEventType.mouseMoved.rawValue) |
             (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.rightMouseDragged.rawValue) |
+            (1 << CGEventType.otherMouseDragged.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue) |
+            // Keys and extra mouse buttons can be part of the shortcut.
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseUp.rawValue)
         )
 
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
@@ -272,6 +294,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
                     diagLog("⚠️ Tap was disabled! Re-enabling...")
                     // Same reset as tapDisabledByTimeout: events were lost.
                     self.modifierHeld = false
+                    self.resetInputTracking()
                     self.setGestureActive(false)
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
@@ -321,6 +344,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             // was off: the bookkeeping can't be trusted. Reset before
             // re-enabling so a stuck gesture can't keep pinning the cursor.
             modifierHeld = false
+            resetInputTracking()
             setGestureActive(false)
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -332,6 +356,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             diagLog("⚠️ TAP DISABLED BY USER INPUT — tearing down")
             // Permission revoked — fully tear down the tap and reset all state
             modifierHeld = false
+            resetInputTracking()
             setGestureActive(false) // reconnect cursor if it was locked
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: false)
@@ -345,12 +370,24 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             return passthrough
         }
 
+        // Our own replayed presses go straight through.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.replayMarker {
+            return passthrough
+        }
+
+        switch type {
+        case .keyDown, .keyUp, .otherMouseDown, .otherMouseUp:
+            return handlePress(type: type, event: event)
+        default:
+            break
+        }
+
         // Track modifier key state
         if type == .flagsChanged {
             let flags = event.flags
             let wasHeld = modifierHeld
-            modifierHeld = modifiersMatch(flags)
-            diagLog("flagsChanged: rawFlags=\(flags.rawValue) required=\(getRequiredModifiers().rawValue) modifierHeld=\(modifierHeld) wasHeld=\(wasHeld)")
+            refreshHeld(flags: flags)
+            diagLog("flagsChanged: rawFlags=\(flags.rawValue) shortcut=\(getShortcut().rawValue) modifierHeld=\(modifierHeld) wasHeld=\(wasHeld)")
 
             if modifierHeld != wasHeld {
                 diagLog("Modifier \(self.modifierHeld ? "PRESSED" : "RELEASED")")
@@ -365,11 +402,11 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         }
 
         // Check modifier from event flags directly (screen sharing may not send flagsChanged)
-        if type == .scrollWheel || type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged {
-            let nowHeld = modifiersMatch(event.flags)
-            if nowHeld != modifierHeld {
-                diagLog("Modifier state updated from event flags: \(nowHeld) (was \(modifierHeld)) rawFlags=\(event.flags.rawValue)")
-                modifierHeld = nowHeld
+        if type == .scrollWheel || type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged {
+            let wasHeld = modifierHeld
+            refreshHeld(flags: event.flags)
+            if modifierHeld != wasHeld {
+                diagLog("Shortcut state updated from event flags: \(modifierHeld) (was \(wasHeld)) rawFlags=\(event.flags.rawValue)")
             }
         }
 
@@ -386,7 +423,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         let sensitivity = getSensitivity()
 
         switch type {
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             let anchorCursor = getAnchorCursor()
             // In scroll mode a mouse move's only job is to keep the cursor
             // anchored. If anchoring is off there's nothing to do — let it move.
@@ -409,6 +446,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
                 let magnification = Self.clampMagnification(-smoothedDeltaY * sensitivity * Self.magnificationPerPixel)
                 if abs(magnification) > 0.0002 {
                     emitter.emit(magnification: magnification, phase: .changed)
+                    consumePendingPresses()
                 }
                 diagLog("DRAG zoom: raw=\(rawDeltaY) smooth=\(smoothedDeltaY) mag=\(magnification)")
             }
@@ -429,6 +467,7 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             lastGestureTime = now()
             if abs(magnification) > 0.0005 {
                 emitter.emit(magnification: magnification, phase: .changed)
+                consumePendingPresses()
             }
             diagLog("Scroll zoom: used=\(deltaPixel) mag=\(magnification)")
             return nil
@@ -436,5 +475,84 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         default:
             return passthrough
         }
+    }
+
+    // MARK: - Shortcut keys and mouse buttons
+
+    /// Key and extra-button presses. Presses that are part of the shortcut are
+    /// held back while the rest of the shortcut is down, so e.g. Back doesn't
+    /// navigate when it starts a zoom. If the press never zooms it is replayed
+    /// on release, so a plain click or keystroke still reaches the app.
+    private func handlePress(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let passthrough = Unmanaged.passUnretained(event)
+        let isKey = type == .keyDown || type == .keyUp
+        let isDown = type == .keyDown || type == .otherMouseDown
+        let input: ShortcutInput = isKey
+            ? .key(UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)))
+            : .button(Int(event.getIntegerValueField(.mouseEventButtonNumber)))
+        let shortcut = getShortcut()
+
+        guard shortcut.inputs.contains(input) else {
+            // Something else was typed: release held-back presses first so
+            // the app sees keys in the order they were pressed.
+            if isDown, !pendingPresses.isEmpty {
+                replayPendingPresses(then: event)
+                return nil
+            }
+            return passthrough
+        }
+
+        if isDown {
+            if isKey, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                let heldBack = consumedInputs.contains(input) || pendingPresses.contains { $0.input == input }
+                return heldBack ? nil : passthrough
+            }
+            heldInputs.insert(input)
+            refreshHeld(flags: event.flags)
+            guard event.flags.contains(shortcut.modifiers), shouldIntercept(),
+                  let press = event.copy() else { return passthrough }
+            pendingPresses.append((input, press))
+            diagLog("Holding back \(input)")
+            return nil
+        }
+
+        heldInputs.remove(input)
+        let wasHeld = modifierHeld
+        refreshHeld(flags: event.flags)
+        if wasHeld && !modifierHeld && gestureActive {
+            emitter.emit(magnification: 0, phase: .ended)
+            setGestureActive(false)
+        }
+        if consumedInputs.remove(input) != nil { return nil }
+        if pendingPresses.contains(where: { $0.input == input }) {
+            replayPendingPresses(then: event)
+            return nil
+        }
+        return passthrough
+    }
+
+    /// Posts every held-back press in order, then a copy of `event`, so the
+    /// app sees them exactly as typed (just later).
+    private func replayPendingPresses(then event: CGEvent) {
+        let presses = pendingPresses.map(\.event)
+        pendingPresses.removeAll()
+        for press in presses + [event.copy()].compactMap({ $0 }) {
+            press.setIntegerValueField(.eventSourceUserData, value: Self.replayMarker)
+            postEvent(press)
+        }
+    }
+
+    /// A zoom happened: held-back presses were the shortcut, never replay them.
+    private func consumePendingPresses() {
+        guard !pendingPresses.isEmpty else { return }
+        consumedInputs.formUnion(pendingPresses.map(\.input))
+        pendingPresses.removeAll()
+    }
+
+    /// Events were lost (tap disabled): forget what we thought was held.
+    private func resetInputTracking() {
+        heldInputs.removeAll()
+        pendingPresses.removeAll()
+        consumedInputs.removeAll()
     }
 }

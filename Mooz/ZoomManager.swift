@@ -159,8 +159,8 @@ final class ZoomManager {
         let interceptor = GestureInterceptor(
             emitter: emitter,
             shouldIntercept: shouldIntercept,
-            getRequiredModifiers: {
-                ModifierStore.currentFlags()
+            getShortcut: {
+                ShortcutStore.current()
             },
             getInputSource: {
                 let raw = UserDefaults.standard.string(forKey: "inputSource") ?? "mouseDrag"

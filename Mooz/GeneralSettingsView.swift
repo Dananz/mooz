@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// "General" preferences tab: enable switch, the modifier-key recorder, input
+/// "General" preferences tab: enable switch, the shortcut recorder, input
 /// source, sensitivity, and the cursor-anchor behavior. All values are bound to
 /// the same `@AppStorage` keys the interceptor reads live.
 struct GeneralSettingsView: View {
     @AppStorage("isEnabled") private var isEnabled = true
-    @AppStorage("modifierFlags") private var modifierFlagsRaw = 131072 // .maskShift
+    @AppStorage(ShortcutStore.key) private var shortcut = ShortcutStore.current()
     @AppStorage("inputSource") private var inputSource = "mouseDrag"
     @AppStorage("sensitivity") private var sensitivity = 0.5
     @AppStorage("anchorCursor") private var anchorCursor = true
@@ -46,7 +46,7 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             SettingsSectionHeader(title: "Gesture")
             SettingsCard {
-                ModifierRecorderField(flagsRaw: $modifierFlagsRaw)
+                ShortcutRecorderField(shortcut: $shortcut)
                     .padding(.horizontal, SettingsMetrics.rowHPadding)
                     .padding(.vertical, SettingsMetrics.rowVPadding)
 
