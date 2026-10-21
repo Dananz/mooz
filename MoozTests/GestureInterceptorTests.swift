@@ -42,7 +42,8 @@ final class GestureInterceptorTests: XCTestCase {
                 getAnchorCursor: { anchor },
                 warpCursor: { [unowned self] _ in warps += 1 },
                 applySuppressionInterval: { [unowned self] in suppressions.append($0) },
-                isPhysicallyHeld: { [unowned self] in $0.isSatisfied(flags: physical, held: physicalInputs) },
+                physicalModifierFlags: { [unowned self] in physical },
+                isInputPhysicallyDown: { [unowned self] in physicalInputs.contains($0) },
                 postEvent: { [unowned self] in posted.append($0) },
                 now: { [unowned self] in clock }
             )
@@ -376,5 +377,47 @@ final class GestureInterceptorTests: XCTestCase {
         h.handle(.otherMouseUp, buttonEvent(2, down: false))
         XCTAssertEqual(h.posted.map { $0.type }, [.otherMouseDown, .otherMouseUp])
         XCTAssertEqual(h.posted.first?.getIntegerValueField(.mouseEventButtonNumber), 2)
+    }
+
+    /// The key-shortcut version of the wedge: the tap misses Z's release. The
+    /// watchdog must end the gesture and forget Z, so moves after the
+    /// cooldown don't re-pin the cursor.
+    func testWedge_lostKeyRelease_doesNotRearmAfterCooldown() {
+        let h = Harness(shortcut: Shortcut(modifiers: [], inputs: [.key(zKey)]))
+        h.physicalInputs = [.key(zKey)]
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.handle(.mouseMoved, moveEvent(flags: []))
+        XCTAssertTrue(h.interceptor.gestureActive)
+
+        h.physicalInputs = [] // released, but the key-up never reaches the tap
+        h.interceptor.watchdogTick()
+        XCTAssertFalse(h.interceptor.gestureActive)
+
+        h.clock += 3
+        for _ in 0..<5 {
+            let event = moveEvent(flags: [])
+            XCTAssertTrue(h.handle(.mouseMoved, event) != nil, "moves pass through")
+        }
+        XCTAssertFalse(h.interceptor.gestureActive, "stale key must not re-arm the gesture")
+
+        // A real press works again.
+        h.physicalInputs = [.key(zKey)]
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.handle(.mouseMoved, moveEvent(flags: []))
+        XCTAssertTrue(h.interceptor.gestureActive)
+    }
+
+    func testFreshPressAfterLostReleaseIsNotSwallowed() {
+        let h = Harness(shortcut: Shortcut(modifiers: [], inputs: [.key(zKey)]))
+        h.physicalInputs = [.key(zKey)]
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.handle(.mouseMoved, moveEvent(flags: []))
+        h.handle(.mouseMoved, moveEvent(flags: []))
+        XCTAssertTrue(h.recorder.phases.contains(.changed), "zoomed, so Z is consumed")
+
+        // Z's release is lost; the next tap of Z must still type.
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.handle(.keyUp, keyEvent(zKey, down: false))
+        XCTAssertEqual(h.posted.map { $0.type }, [.keyDown, .keyUp])
     }
 }

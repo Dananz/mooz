@@ -53,7 +53,8 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     // recorders/fakes so the full event flow runs without a real event tap.
     private let warpCursor: (CGPoint) -> Void
     private let applySuppressionInterval: (CFTimeInterval) -> Void
-    private let isPhysicallyHeld: (Shortcut) -> Bool
+    private let physicalModifierFlags: () -> CGEventFlags
+    private let isInputPhysicallyDown: (ShortcutInput) -> Bool
     private let postEvent: (CGEvent) -> Void
     private let now: () -> TimeInterval
 
@@ -69,6 +70,14 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
     /// the event's modifier flags and the keys/buttons this tap saw go down.
     private func refreshHeld(flags: CGEventFlags) {
         modifierHeld = getShortcut().isSatisfied(flags: flags, held: heldInputs)
+    }
+
+    /// The whole shortcut by hardware (HID) state.
+    private func isPhysicallyHeld(_ shortcut: Shortcut) -> Bool {
+        shortcut.isSatisfied(
+            flags: physicalModifierFlags(),
+            held: shortcut.inputs.filter(isInputPhysicallyDown)
+        )
     }
 
     private var eventTap: CFMachPort?
@@ -156,6 +165,11 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
             diagLog("WATCHDOG force-end (shortcut physically released)")
             physicalForceEndUptime = now()
             modifierHeld = false
+            // A missed key/button release would otherwise leave the input
+            // "held" forever and re-arm the gesture after the cooldown.
+            // Consumed/pending entries stay: the release may still be in
+            // flight, and the next fresh press clears them anyway.
+            heldInputs = heldInputs.filter(isInputPhysicallyDown)
             emitter.emit(magnification: 0, phase: .ended)
             setGestureActive(false)
             return
@@ -205,17 +219,17 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         },
         // HID hardware state: authoritative even when session-level
         // bookkeeping (event flags) is stale or our tap dropped the key-up.
-        isPhysicallyHeld: @escaping (Shortcut) -> Bool = { shortcut in
-            let held = shortcut.inputs.filter { input in
-                switch input {
-                case .key(let code):
-                    return CGEventSource.keyState(.hidSystemState, key: code)
-                case .button(let button):
-                    guard let button = CGMouseButton(rawValue: UInt32(button)) else { return false }
-                    return CGEventSource.buttonState(.hidSystemState, button: button)
-                }
+        physicalModifierFlags: @escaping () -> CGEventFlags = {
+            CGEventSource.flagsState(.hidSystemState)
+        },
+        isInputPhysicallyDown: @escaping (ShortcutInput) -> Bool = { input in
+            switch input {
+            case .key(let code):
+                return CGEventSource.keyState(.hidSystemState, key: code)
+            case .button(let button):
+                guard let button = CGMouseButton(rawValue: UInt32(button)) else { return false }
+                return CGEventSource.buttonState(.hidSystemState, button: button)
             }
-            return shortcut.isSatisfied(flags: CGEventSource.flagsState(.hidSystemState), held: held)
         },
         postEvent: @escaping (CGEvent) -> Void = { $0.post(tap: .cgSessionEventTap) },
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
@@ -228,7 +242,8 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
         self.getAnchorCursor = getAnchorCursor
         self.warpCursor = warpCursor
         self.applySuppressionInterval = applySuppressionInterval
-        self.isPhysicallyHeld = isPhysicallyHeld
+        self.physicalModifierFlags = physicalModifierFlags
+        self.isInputPhysicallyDown = isInputPhysicallyDown
         self.postEvent = postEvent
         self.now = now
     }
@@ -507,6 +522,9 @@ final class GestureInterceptor: GestureIntercepting, @unchecked Sendable {
                 let heldBack = consumedInputs.contains(input) || pendingPresses.contains { $0.input == input }
                 return heldBack ? nil : passthrough
             }
+            // A fresh press: forget any state a lost release left behind.
+            consumedInputs.remove(input)
+            pendingPresses.removeAll { $0.input == input }
             heldInputs.insert(input)
             refreshHeld(flags: event.flags)
             guard event.flags.contains(shortcut.modifiers), shouldIntercept(),
