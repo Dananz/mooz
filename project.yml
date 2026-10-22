@@ -85,6 +85,8 @@ targets:
       - path: MoozTests
       - path: Mooz/GestureInterceptor.swift
       - path: Mooz/MagnificationEmitting.swift
+      - path: Mooz/Shortcut.swift
+      - path: Mooz/ModifierStore.swift
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.dananz.mooz.tests
       GENERATE_INFOPLIST_FILE: YES

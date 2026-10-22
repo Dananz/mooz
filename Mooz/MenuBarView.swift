@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MenuBarView: View {
-    @AppStorage("modifierFlags") private var modifierFlagsRaw = 131072 // .maskShift
+    @AppStorage(ShortcutStore.key) private var shortcut = ShortcutStore.current()
     @AppStorage("inputSource") private var inputSource = "mouseDrag"
     @Environment(\.openSettings) private var openSettings
     @EnvironmentObject private var updater: Updater
@@ -124,8 +124,7 @@ struct MenuBarView: View {
     // MARK: - Helpers
 
     private var modifierLabel: String {
-        let flags = CGEventFlags(rawValue: UInt64(bitPattern: Int64(modifierFlagsRaw)))
-        let mod = ModifierStore.symbols(flags)
+        let mod = shortcut.compactLabel
         let input = inputSource == "scrollWheel" ? "Scroll" : "Drag"
         return "\(mod.isEmpty ? "—" : mod) + \(input)"
     }
