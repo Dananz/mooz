@@ -293,6 +293,7 @@ impl SettingsApp {
                 let text = if recorder.draft().valid() {recorder.draft().label()} else {"Press your keys…".into()};
                 ui.label(RichText::new(text).color(TEXT));
                 ui.label(RichText::new("Release to save. Esc cancels.").small().color(MUTED));
+                ui.label(RichText::new("Mouse buttons can't be recorded. To use one, assign it a keystroke in your mouse app (like Logi Options+), then record that keystroke.").small().color(MUTED));
             });
             if link(ui,"Cancel recording").clicked() { self.recording = None; }
         } else {
