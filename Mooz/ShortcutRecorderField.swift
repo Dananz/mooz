@@ -224,6 +224,13 @@ private struct ShortcutRecorderPopover: View {
                 .font(.caption)
                 .foregroundStyle(model.rejection == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange))
                 .multilineTextAlignment(.center)
+
+            // Mouse apps like Logi Options+ grab side buttons in the mouse
+            // itself, so macOS never sees a button press to record.
+            Text("Side button not showing up? Mouse apps like Logi Options+ can take it over. Assign it a keystroke there, then record that keystroke.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
         .padding(16)
         .frame(width: 260)
