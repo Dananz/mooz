@@ -44,7 +44,18 @@ final class ZoomManager {
         _ = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.interceptor?.shortcutDidChange() }
+            MainActor.assumeIsolated {
+                guard let self, let interceptor = self.interceptor else { return }
+                interceptor.shortcutDidChange()
+                // Re-creating the tap failed: don't show green while nothing
+                // listens. Retry once with a fresh interceptor; start() leaves
+                // isRunning false (red) if that fails too.
+                if !interceptor.isRunning {
+                    self.interceptor = nil
+                    self.isRunning = false
+                    self.startIfEnabled()
+                }
+            }
         }
     }
 
