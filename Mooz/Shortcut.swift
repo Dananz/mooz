@@ -48,6 +48,26 @@ struct Shortcut: Hashable, Sendable {
         !isEmpty && flags.contains(modifiers) && inputs.isSubset(of: held)
     }
 
+    /// A typing key (anything but an F-key) with no modifier or mouse button.
+    /// Mooz holds back every press of a shortcut key, so this would delay that
+    /// key in every app; the recorder refuses it.
+    var isBareTypingKey: Bool {
+        guard modifierBits == 0 else { return false }
+        var hasTypingKey = false
+        for input in inputs {
+            switch input {
+            case .button: return false
+            case .key(let code): if !Self.functionKeyCodes.contains(Int(code)) { hasTypingKey = true }
+            }
+        }
+        return hasTypingKey
+    }
+
+    private static let functionKeyCodes: Set<Int> = [
+        kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+        kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20,
+    ]
+
     // MARK: - Labels
 
     /// Keys first (by code), then buttons, so labels are stable.

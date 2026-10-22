@@ -420,4 +420,63 @@ final class GestureInterceptorTests: XCTestCase {
         h.handle(.keyUp, keyEvent(zKey, down: false))
         XCTAssertEqual(h.posted.map { $0.type }, [.keyDown, .keyUp])
     }
+
+    // MARK: - Review fixes
+
+    func testLostKeyReleaseWhileIdleNeverStartsAGesture() {
+        let h = Harness(shortcut: Shortcut(modifiers: [], inputs: [.key(zKey)]))
+        h.physicalInputs = [.key(zKey)]
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.physicalInputs = [] // released; the key-up never reached the tap
+
+        for _ in 0..<5 {
+            let event = moveEvent(flags: [])
+            XCTAssertTrue(h.handle(.mouseMoved, event) != nil, "moves pass through")
+        }
+        XCTAssertFalse(h.interceptor.gestureActive, "a stale key must not pin the cursor")
+    }
+
+    func testSmallDragStillCountsAsZoom() {
+        let h = Harness(shortcut: Shortcut(modifiers: [], inputs: [.button(3)]))
+        h.physicalInputs = [.button(3)]
+        h.handle(.otherMouseDown, buttonEvent(3, down: true))
+        for _ in 0..<4 { h.handle(.mouseMoved, moveEvent(flags: [], dy: 1)) }
+        XCTAssertTrue(h.interceptor.gestureActive)
+
+        h.physicalInputs = []
+        let up = buttonEvent(3, down: false)
+        XCTAssertTrue(h.handle(.otherMouseUp, up) == nil)
+        XCTAssertTrue(h.posted.isEmpty, "Back must not fire after a drag zoom")
+    }
+
+    func testTapTimeoutHandsHeldBackPressToTheApp() {
+        let h = Harness(shortcut: Shortcut(modifiers: [], inputs: [.key(zKey)]))
+        h.handle(.keyDown, keyEvent(zKey, down: true))
+        h.handle(.tapDisabledByTimeout, flagsEvent([]))
+        XCTAssertEqual(h.posted.map { $0.type }, [.keyDown])
+
+        let up = keyEvent(zKey, down: false)
+        XCTAssertTrue(h.handle(.keyUp, up) != nil, "the release follows the replayed press")
+    }
+
+    func testEventMaskListensForKeysAndButtonsOnlyWhenUsed() {
+        let keyDown: CGEventMask = 1 << CGEventType.keyDown.rawValue
+        let buttonDown: CGEventMask = 1 << CGEventType.otherMouseDown.rawValue
+        let modifiersOnly = GestureInterceptor.eventMask(for: .default)
+        XCTAssertEqual(modifiersOnly & keyDown, 0)
+        XCTAssertEqual(modifiersOnly & buttonDown, 0)
+        let withKey = GestureInterceptor.eventMask(for: Shortcut(modifiers: .maskControl, inputs: [.key(zKey)]))
+        XCTAssertNotEqual(withKey & keyDown, 0)
+        XCTAssertEqual(withKey & buttonDown, 0)
+        let withButton = GestureInterceptor.eventMask(for: Shortcut(modifiers: [], inputs: [.button(3)]))
+        XCTAssertNotEqual(withButton & buttonDown, 0)
+    }
+
+    func testBareTypingKeyIsRefused() {
+        XCTAssertTrue(Shortcut(modifiers: [], inputs: [.key(zKey)]).isBareTypingKey)
+        XCTAssertFalse(Shortcut(modifiers: .maskControl, inputs: [.key(zKey)]).isBareTypingKey)
+        XCTAssertFalse(Shortcut(modifiers: [], inputs: [.key(zKey), .button(3)]).isBareTypingKey)
+        XCTAssertFalse(Shortcut(modifiers: [], inputs: [.key(0x69)]).isBareTypingKey, "F13 alone is fine")
+        XCTAssertFalse(Shortcut(modifiers: [], inputs: [.button(2)]).isBareTypingKey)
+    }
 }

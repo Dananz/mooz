@@ -39,6 +39,13 @@ final class ZoomManager {
         self.blocklistManager = blocklistManager
         checkAccessibility()
         startAccessibilityPolling()
+        // The interceptor caches the shortcut (and sizes its tap to it), so
+        // tell it when Settings records a new one.
+        _ = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.interceptor?.shortcutDidChange() }
+        }
     }
 
     func checkAccessibility() {

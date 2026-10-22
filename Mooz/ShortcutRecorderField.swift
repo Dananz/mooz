@@ -10,6 +10,8 @@ import SwiftUI
 final class ShortcutRecorderModel: ObservableObject {
     @Published var isRecording = false
     @Published var captured = Shortcut.empty
+    /// Why the last attempt wasn't saved, shown in the popover.
+    @Published var rejection: String?
     private var heldModifiers: CGEventFlags = []
     private var heldInputs: Set<ShortcutInput> = []
     private var monitors: [Any] = []
@@ -18,8 +20,10 @@ final class ShortcutRecorderModel: ObservableObject {
     func start() {
         stop()
         isRecording = true
-        captured = .empty
-        heldModifiers = []
+        rejection = nil
+        // Modifiers already down when recording opens count too.
+        heldModifiers = Self.cgFlags(from: NSEvent.modifierFlags)
+        captured = Shortcut(modifiers: heldModifiers)
         heldInputs = []
         // Keys are swallowed while recording so they don't type, beep, or fire
         // menu shortcuts (⌘W would close Settings). Esc cancels.
@@ -77,6 +81,11 @@ final class ShortcutRecorderModel: ObservableObject {
     /// Everything let go after at least one press: that's the shortcut.
     private func commitIfReleased() {
         guard heldModifiers.isEmpty, heldInputs.isEmpty, !captured.isEmpty else { return }
+        if captured.isBareTypingKey {
+            rejection = "Add a modifier or mouse button, or that key would be delayed while typing."
+            captured = .empty
+            return
+        }
         onCommit?(captured)
         stop()
     }
@@ -211,9 +220,9 @@ private struct ShortcutRecorderPopover: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
 
-            Text("Any keys, plus middle, back, or forward mouse buttons. Release to set, or press Esc to cancel.")
+            Text(model.rejection ?? "Any keys, plus middle, back, or forward mouse buttons. Release to set, or press Esc to cancel.")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(model.rejection == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange))
                 .multilineTextAlignment(.center)
         }
         .padding(16)
